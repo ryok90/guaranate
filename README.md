@@ -72,7 +72,7 @@ While active, Guaranate acquires a power assertion and shows a live frame:
 
 Elapsed      00:42:17
 Remaining    01:17:43
-Ends         23:43
+Ends         23:43:07
 Assertion    System sleep
 Display      May sleep
 

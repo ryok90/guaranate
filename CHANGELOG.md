@@ -36,4 +36,9 @@ dated, versioned section.
   runs the test suite on macOS, and a workflow enforcing that pull requests
   update this changelog.
 
+### Changed
+
+- The timed-session `Ends` time now includes seconds (`HH:mm:ss`) in both the
+  live frame and the non-TTY start line (#3).
+
 [Unreleased]: https://github.com/ryok90/guaranate/commits/main

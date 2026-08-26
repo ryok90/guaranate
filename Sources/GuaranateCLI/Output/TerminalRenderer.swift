@@ -14,7 +14,7 @@ final class TerminalRenderer: @unchecked Sendable {
 
     private let endTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
+        formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
 

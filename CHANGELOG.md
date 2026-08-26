@@ -21,6 +21,8 @@ dated, versioned section.
   `IOPMAssertion*` API — Guaranate does not wrap `caffeinate`.
 - Assertion-mode flags `--display` (keep the display awake) and `--system`
   (prevent all system sleep), plus `--reason` to label the assertion.
+- Version flag: `guaranate -v` / `guaranate --version` prints the version and
+  exits (`-v` short alias added; see #1).
 - Live terminal frame showing elapsed, remaining, and end time; degrades to a
   single start/finish line when stdout is not a TTY.
 - Guaranteed assertion cleanup on normal completion, Ctrl+C (exit code `130`),

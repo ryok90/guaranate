@@ -8,15 +8,17 @@ import GuaranateCore
 /// bare-duration form is the v0.1 foundation.
 @main
 struct Guaranate: ParsableCommand {
+    /// The single source of truth for the CLI version, printed by `-v`/`--version`.
+    static let versionString = "0.1.0"
+
     static let configuration = CommandConfiguration(
         commandName: "guaranate",
         abstract: "A developer-friendly macOS keep-awake CLI.",
-        discussion: "Keep your Mac awake when work needs to finish. Give your Mac some guaraná.",
-        version: "0.1.0"
+        discussion: "Keep your Mac awake when work needs to finish. Give your Mac some guaraná."
     )
 
     @Argument(help: "How long to stay awake: 30m, 2h, 1h30m, 90s, or a plain number of seconds.")
-    var duration: String
+    var duration: String?
 
     @Flag(name: .long, help: "Also keep the display awake (default lets the display sleep).")
     var display = false
@@ -27,15 +29,30 @@ struct Guaranate: ParsableCommand {
     @Option(name: .long, help: "Reason recorded on the power assertion.")
     var reason = "Guaranate timed session"
 
+    // Version is handled explicitly (rather than via `CommandConfiguration.version`)
+    // so both a short `-v` and long `--version` alias are available.
+    @Flag(name: [.customShort("v"), .long], help: "Show the version.")
+    var version = false
+
     func validate() throws {
-        _ = try parseSeconds()
+        if version { return }
+        guard let duration else {
+            throw ValidationError("Missing expected argument '<duration>'.")
+        }
+        _ = try parseSeconds(duration)
         if display && system {
             throw ValidationError("Choose at most one of --display or --system.")
         }
     }
 
     func run() throws {
-        let seconds = try parseSeconds()
+        if version {
+            print(Self.versionString)
+            return
+        }
+
+        // validate() guarantees `duration` is present and parseable here.
+        let seconds = try parseSeconds(duration ?? "")
         let session = TimedSession(
             durationSeconds: seconds,
             assertionType: assertionType,
@@ -51,9 +68,9 @@ struct Guaranate: ParsableCommand {
         return .preventUserIdleSystemSleep
     }
 
-    private func parseSeconds() throws -> Int {
+    private func parseSeconds(_ input: String) throws -> Int {
         do {
-            return try DurationParser.parse(duration)
+            return try DurationParser.parse(input)
         } catch {
             throw ValidationError(String(describing: error))
         }

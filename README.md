@@ -100,7 +100,7 @@ guaranate 2h --system     # prevent all system sleep
 | `--display` | Also keep the display awake. |
 | `--system` | Prevent all system sleep. |
 | `--reason <text>` | Reason recorded on the power assertion. |
-| `--version` | Print the version. |
+| `-v`, `--version` | Print the version. |
 | `-h`, `--help` | Show help. |
 
 ### Non-interactive output

@@ -42,3 +42,6 @@ jobs:
 
       - name: Test
         run: swift test
+
+      - name: E2E smoke test (assertion lifecycle)
+        run: ./scripts/smoke.sh

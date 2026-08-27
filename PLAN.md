@@ -68,6 +68,14 @@ Refs: spec "Bootstrap target", "v0.1", "Recommended stack".
   - Acceptance: `swift test` green for duration parsing, time math, formatting, assertion abstraction.
   - Refs: `Tests/GuaranateCoreTests/*`.
 
+- [x] `M1-T10` E2E smoke test for the assertion lifecycle in CI.
+  - Acceptance: `scripts/smoke.sh` drives the real binary and fails on any
+    lifecycle violation (assertion missing while held, stale assertion after
+    exit, wrong exit code); covers timed expiry (exit 0) and SIGINT (exit 130);
+    runs in CI on `macos-15` after the release build. Not an XCTest — it mutates
+    the host's real sleep state, which `swift test` must never do.
+  - Refs: `scripts/smoke.sh`, `.github/workflows/ci.yml`.
+
 ---
 
 ## M2 — v0.2 Process lifecycle · `todo`

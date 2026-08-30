@@ -38,18 +38,30 @@ tracked in [`PLAN.md`](PLAN.md).
 
 ## Install
 
+### From a release binary
+
+Download the universal (`arm64` + `x86_64`) build from the
+[latest release](https://github.com/ryok90/guaranate/releases/latest), verify
+its checksum, and put it on your `PATH`:
+
+```bash
+shasum -a 256 -c guaranate-*-macos-universal.tar.gz.sha256
+tar -xzf guaranate-*-macos-universal.tar.gz
+cp guaranate-*-macos-universal/guaranate /usr/local/bin/   # or anywhere on your PATH
+```
+
 ### From source
 
 Requires Swift 6 (Xcode 16+) on macOS 14 or later.
 
 ```bash
-git clone git@github.com:ryok90/guaranate.git
+git clone https://github.com/ryok90/guaranate.git
 cd guaranate
 swift build -c release
 cp .build/release/guaranate /usr/local/bin/   # or anywhere on your PATH
 ```
 
-Homebrew and GitHub Release binaries are planned; see [`PLAN.md`](PLAN.md).
+Homebrew packaging is planned; see [`PLAN.md`](PLAN.md).
 
 ---
 

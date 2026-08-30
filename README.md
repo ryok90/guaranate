@@ -84,22 +84,33 @@ guaranate 3600      # a bare integer is interpreted as seconds
 guaranate           # no duration: stay awake until interrupted (Ctrl+C)
 ```
 
-While active, Guaranate acquires a power assertion and shows a live frame:
+While active, Guaranate acquires a power assertion and shows a live frame. On a
+color terminal, timed sessions render a progress bar and styled layout:
 
 ```text
 🌿 Guaranate
 
-Elapsed      00:42:17
-Remaining    01:17:43
-Ends         23:43:07
-Assertion    System sleep
-Display      May sleep
+  ████████████████▏░░░░░░░░░░░░░░░   50%
 
-Press Ctrl+C to stop
+  Elapsed     00:42:17
+  Remaining   01:17:43
+  Ends        23:43:07
+  Assertion   System sleep
+  Display     May sleep
+
+  Press Ctrl+C or q to stop
 ```
 
-The assertion is released automatically when the duration elapses, on Ctrl+C,
-or on `SIGTERM` — never leaving a stale sleep inhibitor behind.
+On a color terminal the bar is drawn with a green→berry-red gradient (truecolor
+or 256-color, degrading to solid green). Running with no duration stays awake
+indefinitely; that frame swaps the progress bar for a spinner
+(`⠋ Awake — until interrupted`). Color and Unicode degrade independently:
+`NO_COLOR` drops color, and a `dumb` or non-UTF-8 terminal falls back to a plain
+ASCII bar (`[####----]`) with no escape codes.
+
+Press **`q`** or **Ctrl+C** to end a live session; it is also released
+automatically when the duration elapses or on `SIGTERM` — never leaving a stale
+sleep inhibitor behind.
 
 ### Assertion modes
 
@@ -164,7 +175,8 @@ Sources/
 │       └── TerminalRenderer.swift
 └── GuaranateCore/           # pure, IOKit-free logic (unit-tested)
     ├── Power/               # PowerAsserting protocol + IOKit PowerManager
-    └── Time/                # DurationParser, Deadline, TimeFormatting
+    ├── Time/                # DurationParser, Deadline, TimeFormatting
+    └── Terminal/            # ProgressBar (pure bar math for the live frame)
 ```
 
 Native IOKit interaction sits behind the `PowerAsserting` protocol, so time,

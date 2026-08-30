@@ -135,7 +135,7 @@ final class TimedSession: @unchecked Sendable {
         }
 
         let elapsed = max(0, Date().timeIntervalSince(start))
-        renderer.renderFinished(elapsed: elapsed, interrupted: interrupted)
+        renderer.renderFinished(elapsed: elapsed, interrupted: interrupted, type: assertionType)
 
         // SIGINT conventionally maps to 128 + signal number.
         exit(interrupted ? 130 : 0)

@@ -85,28 +85,31 @@ guaranate           # no duration: stay awake until interrupted (Ctrl+C)
 ```
 
 While active, Guaranate acquires a power assertion and shows a live frame. On a
-color terminal, timed sessions render a progress bar and styled layout:
+color terminal it renders a gradient progress bar, a metrics table, and a
+centered header, sized to your terminal width:
 
 ```text
-🌿 Guaranate
+             🌿 Guaranate
 
-  ████████████████▏░░░░░░░░░░░░░░░   50%
+  ▏██████████████░░░░░░░░░░░░░░▕   50%
 
-  Elapsed     00:42:17
-  Remaining   01:17:43
-  Ends        23:43:07
-  Assertion   System sleep
-  Display     May sleep
+  Elapsed       · · · · · · · 00:42:17
+  Remaining     · · · · · · · 01:17:43
+  Ends          · · · · · · · 23:43:07
+  Assertion     · · · · · System sleep
+  Display       · · · · · ·  May sleep
 
-  Press Ctrl+C or q to stop
+Press Ctrl+C or q to stop
 ```
 
-On a color terminal the bar is drawn with a green→berry-red gradient (truecolor
-or 256-color, degrading to solid green). Running with no duration stays awake
-indefinitely; that frame swaps the progress bar for a spinner
-(`⠋ Awake — until interrupted`). Color and Unicode degrade independently:
-`NO_COLOR` drops color, and a `dumb` or non-UTF-8 terminal falls back to a plain
-ASCII bar (`[####----]`) with no escape codes.
+The bar is drawn with a green→berry-red gradient (truecolor or 256-color,
+degrading to solid green) and sizes itself to the terminal. Assertion state is
+color-coded (amber when the display is kept awake), the cursor is hidden while
+the frame is live, and a summary card is shown on completion. Running with no
+duration stays awake indefinitely; that frame swaps the progress bar for a
+spinner (`⠋ Awake — until interrupted`). Color and Unicode degrade
+independently: `NO_COLOR` drops color, and a `dumb` or non-UTF-8 terminal falls
+back to a plain ASCII bar (`[####----]`) with no escape codes.
 
 Press **`q`** or **Ctrl+C** to end a live session; it is also released
 automatically when the duration elapses or on `SIGTERM` — never leaving a stale

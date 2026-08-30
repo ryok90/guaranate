@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest an enhancement or new command
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [PLAN.md](https://github.com/ryok90/guaranate/blob/main/PLAN.md)
+        and [GUARANATE.md](https://github.com/ryok90/guaranate/blob/main/GUARANATE.md)
+        first — the roadmap and explicit non-goals may already cover this.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that Guaranate doesn't support today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: The command, flag, or behavior you'd like. Sketch the CLI shape if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false

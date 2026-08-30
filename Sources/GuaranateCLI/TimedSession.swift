@@ -12,7 +12,8 @@ import GuaranateCore
 /// The assertion is released on every exit path, so no stale sleep inhibitor is
 /// left behind. All state is touched only on the main dispatch queue.
 final class TimedSession: @unchecked Sendable {
-    private let deadline: Deadline
+    private let start: Date
+    private let deadline: Deadline?
     private let assertionType: PowerAssertionType
     private let reason: String
     private let power: PowerAsserting
@@ -24,14 +25,15 @@ final class TimedSession: @unchecked Sendable {
     private var finished = false
 
     init(
-        durationSeconds: Int,
+        durationSeconds: Int?,
         assertionType: PowerAssertionType,
         reason: String,
         power: PowerAsserting,
         renderer: TerminalRenderer = TerminalRenderer(),
         now: Date = Date()
     ) {
-        self.deadline = Deadline(start: now, duration: TimeInterval(durationSeconds))
+        self.start = now
+        self.deadline = durationSeconds.map { Deadline(start: now, duration: TimeInterval($0)) }
         self.assertionType = assertionType
         self.reason = reason
         self.power = power
@@ -72,10 +74,10 @@ final class TimedSession: @unchecked Sendable {
 
     private func tick() {
         let now = Date()
-        if deadline.isExpired(at: now) {
+        if let deadline, deadline.isExpired(at: now) {
             finish(interrupted: false)
         } else {
-            renderer.renderFrame(deadline: deadline, type: assertionType, now: now)
+            renderer.renderFrame(deadline: deadline, start: start, type: assertionType, now: now)
         }
     }
 
@@ -93,7 +95,7 @@ final class TimedSession: @unchecked Sendable {
             self.token = nil
         }
 
-        let elapsed = deadline.elapsed(at: Date())
+        let elapsed = max(0, Date().timeIntervalSince(start))
         renderer.renderFinished(elapsed: elapsed, interrupted: interrupted)
 
         // SIGINT conventionally maps to 128 + signal number.

@@ -16,6 +16,10 @@ dated, versioned section.
 
 - Install via Homebrew: `brew tap ryok90/guaranate && brew install guaranate`
   pulls the prebuilt universal binary from the tap.
+- Running `guaranate` with no duration now stays awake indefinitely until
+  interrupted (Ctrl+C / SIGTERM), like `caffeinate` with no timeout (#8).
+- Short aliases for every option: `-d`/`--display`, `-s`/`--system`, and
+  `-r`/`--reason` (#7).
 
 ## [0.1.0] - 2026-08-29
 

@@ -25,26 +25,35 @@ final class TerminalRenderer: @unchecked Sendable {
 
     // MARK: - Timed session
 
-    func renderStart(deadline: Deadline, type: PowerAssertionType) {
+    func renderStart(deadline: Deadline?, type: PowerAssertionType) {
         guard !isInteractive else { return }
-        let line = "🌿 Guaranate — staying awake for \(TimeFormatting.compact(deadline.duration)), ends \(endTimeFormatter.string(from: deadline.end))"
+        let line: String
+        if let deadline {
+            line = "🌿 Guaranate — staying awake for \(TimeFormatting.compact(deadline.duration)), ends \(endTimeFormatter.string(from: deadline.end))"
+        } else {
+            line = "🌿 Guaranate — staying awake until interrupted"
+        }
         write(line + "\n")
     }
 
-    func renderFrame(deadline: Deadline, type: PowerAssertionType, now: Date) {
+    func renderFrame(deadline: Deadline?, start: Date, type: PowerAssertionType, now: Date) {
         guard isInteractive else { return }
 
-        let lines = [
+        var lines = [
             "🌿 Guaranate",
             "",
-            row("Elapsed", TimeFormatting.clock(deadline.elapsed(at: now))),
-            row("Remaining", TimeFormatting.clock(deadline.remaining(at: now))),
-            row("Ends", endTimeFormatter.string(from: deadline.end)),
-            row("Assertion", type.assertionLabel),
-            row("Display", type.displayLabel),
-            "",
-            "Press Ctrl+C to stop",
+            row("Elapsed", TimeFormatting.clock(max(0, now.timeIntervalSince(start)))),
         ]
+        if let deadline {
+            lines.append(row("Remaining", TimeFormatting.clock(deadline.remaining(at: now))))
+            lines.append(row("Ends", endTimeFormatter.string(from: deadline.end)))
+        } else {
+            lines.append(row("Mode", "Indefinite — until interrupted"))
+        }
+        lines.append(row("Assertion", type.assertionLabel))
+        lines.append(row("Display", type.displayLabel))
+        lines.append("")
+        lines.append("Press Ctrl+C to stop")
 
         redraw(lines)
     }

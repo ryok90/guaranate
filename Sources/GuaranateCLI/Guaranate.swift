@@ -17,16 +17,16 @@ struct Guaranate: ParsableCommand {
         discussion: "Keep your Mac awake when work needs to finish. Give your Mac some guaraná."
     )
 
-    @Argument(help: "How long to stay awake: 30m, 2h, 1h30m, 90s, or a plain number of seconds.")
+    @Argument(help: "How long to stay awake: 30m, 2h, 1h30m, 90s, or a plain number of seconds. Omit to stay awake until interrupted.")
     var duration: String?
 
-    @Flag(name: .long, help: "Also keep the display awake (default lets the display sleep).")
+    @Flag(name: [.customShort("d"), .long], help: "Also keep the display awake (default lets the display sleep).")
     var display = false
 
-    @Flag(name: .long, help: "Prevent all system sleep.")
+    @Flag(name: [.customShort("s"), .long], help: "Prevent all system sleep.")
     var system = false
 
-    @Option(name: .long, help: "Reason recorded on the power assertion.")
+    @Option(name: [.customShort("r"), .long], help: "Reason recorded on the power assertion.")
     var reason = "Guaranate timed session"
 
     // Version is handled explicitly (rather than via `CommandConfiguration.version`)
@@ -36,10 +36,9 @@ struct Guaranate: ParsableCommand {
 
     func validate() throws {
         if version { return }
-        guard let duration else {
-            throw ValidationError("Missing expected argument '<duration>'.")
+        if let duration {
+            _ = try parseSeconds(duration)
         }
-        _ = try parseSeconds(duration)
         if display && system {
             throw ValidationError("Choose at most one of --display or --system.")
         }
@@ -51,8 +50,9 @@ struct Guaranate: ParsableCommand {
             return
         }
 
-        // validate() guarantees `duration` is present and parseable here.
-        let seconds = try parseSeconds(duration ?? "")
+        // validate() guarantees any supplied `duration` is parseable here.
+        // Absent duration => an indefinite session that runs until interrupted.
+        let seconds = try duration.map { try parseSeconds($0) }
         let session = TimedSession(
             durationSeconds: seconds,
             assertionType: assertionType,

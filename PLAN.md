@@ -76,6 +76,20 @@ Refs: spec "Bootstrap target", "v0.1", "Recommended stack".
     the host's real sleep state, which `swift test` must never do.
   - Refs: `scripts/smoke.sh`, `.github/workflows/ci.yml`.
 
+- [x] `M1-T11` Polished live TTY frame: gradient progress bar, color, clearer
+  hierarchy, and a `q` quit key.
+  - Acceptance: color TTY shows a width-responsive progress bar with a
+    green→berry-red gradient (truecolor/256-color, solid-green fallback), a
+    dot-leader metrics table under a centered header, a spinner for the
+    indefinite frame, a hidden cursor while live, and a completion summary card;
+    `NO_COLOR` / `dumb` / non-UTF-8 fall back to plain ASCII with no stray
+    escapes; off-TTY output byte-for-byte unchanged; pressing `q` or Ctrl+C
+    releases the assertion and exits 130 with the terminal restored; no redraw
+    or cleanup regression.
+  - Refs: `Sources/GuaranateCLI/Output/TerminalRenderer.swift`,
+    `Sources/GuaranateCLI/TimedSession.swift`,
+    `Sources/GuaranateCore/Terminal/ProgressBar.swift`, #21.
+
 ---
 
 ## M2 — v0.2 Process lifecycle · `todo`

@@ -20,6 +20,19 @@ dated, versioned section.
   interrupted (Ctrl+C / SIGTERM), like `caffeinate` with no timeout (#8).
 - Short aliases for every option: `-d`/`--display`, `-s`/`--system`, and
   `-r`/`--reason` (#7).
+- Press `q` (or Ctrl+C) to end a live session from the keyboard (#21).
+
+### Changed
+
+- The live terminal frame is now a deliberate terminal UI: timed sessions show
+  a gradient progress bar (green→berry-red), a percentage, and a dot-leader
+  metrics table beneath a centered header; indefinite sessions show an animated
+  spinner. The bar sizes itself to the terminal width, assertion state is
+  color-coded (amber when the display is kept awake), the cursor is hidden while
+  the frame is live, and completion shows a summary card. The gradient uses
+  truecolor or 256-color when available and degrades to solid green otherwise.
+  Honors `NO_COLOR` and falls back to plain ASCII (no color, `[####----]` bar)
+  on `dumb` or non-UTF-8 terminals; non-TTY output is unchanged (#21).
 
 ## [0.1.0] - 2026-08-29
 

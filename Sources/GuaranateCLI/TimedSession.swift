@@ -7,7 +7,7 @@ import GuaranateCore
 /// Lifecycle:
 /// 1. Acquire the requested power assertion.
 /// 2. Render elapsed / remaining / end time once per second.
-/// 3. On expiry, Ctrl+C (SIGINT), or SIGTERM: release the assertion and exit.
+/// 3. On expiry, `q`/Ctrl+C (SIGINT), or SIGTERM: release the assertion and exit.
 ///
 /// The assertion is released on every exit path, so no stale sleep inhibitor is
 /// left behind. All state is touched only on the main dispatch queue.
@@ -22,6 +22,8 @@ final class TimedSession: @unchecked Sendable {
     private var token: PowerAssertionToken?
     private var renderTimer: DispatchSourceTimer?
     private var signalSources: [DispatchSourceSignal] = []
+    private var keyboardSource: DispatchSourceRead?
+    private var originalTerminal: termios?
     private var finished = false
 
     init(
@@ -47,6 +49,7 @@ final class TimedSession: @unchecked Sendable {
 
         installSignalHandlers()
         startRenderTimer()
+        installKeyboard()
 
         dispatchMain()
     }
@@ -72,6 +75,39 @@ final class TimedSession: @unchecked Sendable {
         }
     }
 
+    /// Puts the terminal in cbreak mode (no line buffering, no echo) so a lone
+    /// `q`/`Q` keypress ends the session. `ISIG` stays enabled so Ctrl+C still
+    /// raises SIGINT. No-op unless both stdin and stdout are TTYs (the live
+    /// frame's control); the original attributes are restored on every exit
+    /// path via `restoreTerminal` in `finish`.
+    private func installKeyboard() {
+        guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else { return }
+        var attrs = termios()
+        guard tcgetattr(STDIN_FILENO, &attrs) == 0 else { return }
+        originalTerminal = attrs
+        attrs.c_lflag &= ~tcflag_t(ICANON | ECHO)
+        tcsetattr(STDIN_FILENO, TCSANOW, &attrs)
+
+        let source = DispatchSource.makeReadSource(fileDescriptor: STDIN_FILENO, queue: .main)
+        source.setEventHandler { [weak self] in
+            var byte: UInt8 = 0
+            let n = read(STDIN_FILENO, &byte, 1)
+            guard n > 0 else { self?.keyboardSource?.cancel(); return }
+            if byte == UInt8(ascii: "q") || byte == UInt8(ascii: "Q") {
+                self?.finish(interrupted: true)
+            }
+        }
+        keyboardSource = source
+        source.resume()
+    }
+
+    /// Restores the terminal attributes saved by `installKeyboard`, if any.
+    private func restoreTerminal() {
+        guard var attrs = originalTerminal else { return }
+        tcsetattr(STDIN_FILENO, TCSANOW, &attrs)
+        originalTerminal = nil
+    }
+
     private func tick() {
         let now = Date()
         if let deadline, deadline.isExpired(at: now) {
@@ -89,6 +125,9 @@ final class TimedSession: @unchecked Sendable {
 
         renderTimer?.cancel()
         renderTimer = nil
+        keyboardSource?.cancel()
+        keyboardSource = nil
+        restoreTerminal()
 
         if let token {
             power.release(token)
@@ -96,7 +135,7 @@ final class TimedSession: @unchecked Sendable {
         }
 
         let elapsed = max(0, Date().timeIntervalSince(start))
-        renderer.renderFinished(elapsed: elapsed, interrupted: interrupted)
+        renderer.renderFinished(elapsed: elapsed, interrupted: interrupted, type: assertionType)
 
         // SIGINT conventionally maps to 128 + signal number.
         exit(interrupted ? 130 : 0)

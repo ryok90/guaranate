@@ -12,6 +12,8 @@ dated, versioned section.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-29
+
 ### Added
 
 - Native CLI foundation: `guaranate <duration>` keeps macOS awake for a
@@ -41,4 +43,5 @@ dated, versioned section.
 - The timed-session `Ends` time now includes seconds (`HH:mm:ss`) in both the
   live frame and the non-TTY start line (#3).
 
-[Unreleased]: https://github.com/ryok90/guaranate/commits/main
+[Unreleased]: https://github.com/ryok90/guaranate/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ryok90/guaranate/releases/tag/v0.1.0

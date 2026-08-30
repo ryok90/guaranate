@@ -2,9 +2,20 @@ name: CI
 
 on:
   pull_request:
+    # Docs and repo/GitHub metadata never affect the Swift build, tests, or
+    # smoke script. ci.yml itself is intentionally NOT ignored so a PR editing
+    # the CI definition still validates it.
     paths-ignore:
       - "**/*.md"
       - LICENSE
+      - .gitignore
+      - .github/dependabot.yml
+      - .github/FUNDING.yml
+      - .github/CODEOWNERS
+      - .github/ISSUE_TEMPLATE/**
+      - .github/workflows/codeql.yml
+      - .github/workflows/changelog.yml
+      - .github/workflows/release.yml
   workflow_dispatch:
 
 concurrency:

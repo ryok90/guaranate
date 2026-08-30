@@ -12,6 +12,11 @@ dated, versioned section.
 
 ## [Unreleased]
 
+### Added
+
+- Install via Homebrew: `brew tap ryok90/guaranate && brew install guaranate`
+  pulls the prebuilt universal binary from the tap.
+
 ## [0.1.0] - 2026-08-29
 
 ### Added

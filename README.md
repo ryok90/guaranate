@@ -38,6 +38,13 @@ tracked in [`PLAN.md`](PLAN.md).
 
 ## Install
 
+### With Homebrew
+
+```bash
+brew tap ryok90/guaranate
+brew install guaranate
+```
+
 ### From a release binary
 
 Download the universal (`arm64` + `x86_64`) build from the
@@ -60,8 +67,6 @@ cd guaranate
 swift build -c release
 cp .build/release/guaranate /usr/local/bin/   # or anywhere on your PATH
 ```
-
-Homebrew packaging is planned; see [`PLAN.md`](PLAN.md).
 
 ---
 

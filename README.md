@@ -25,6 +25,7 @@ tracked in [`PLAN.md`](PLAN.md).
 | Feature | State |
 | --- | --- |
 | `guaranate <duration>` timed session | ✅ shipped |
+| `guaranate` (no duration) runs until interrupted | ✅ shipped |
 | Native `IOPMAssertion` (no `caffeinate`) | ✅ shipped |
 | Elapsed / remaining / end-time display | ✅ shipped |
 | Ctrl+C / SIGTERM cleanup, no stale assertion | ✅ shipped |
@@ -80,6 +81,7 @@ guaranate 2h
 guaranate 1h30m
 guaranate 90s
 guaranate 3600      # a bare integer is interpreted as seconds
+guaranate           # no duration: stay awake until interrupted (Ctrl+C)
 ```
 
 While active, Guaranate acquires a power assertion and shows a live frame:
@@ -114,9 +116,9 @@ guaranate 2h --system     # prevent all system sleep
 
 | Option | Description |
 | --- | --- |
-| `--display` | Also keep the display awake. |
-| `--system` | Prevent all system sleep. |
-| `--reason <text>` | Reason recorded on the power assertion. |
+| `-d`, `--display` | Also keep the display awake. |
+| `-s`, `--system` | Prevent all system sleep. |
+| `-r`, `--reason <text>` | Reason recorded on the power assertion. |
 | `-v`, `--version` | Print the version. |
 | `-h`, `--help` | Show help. |
 

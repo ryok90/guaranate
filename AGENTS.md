@@ -66,6 +66,11 @@ code stays unit-testable without mutating the host machine.
   user-readable messages (see `DurationParseError`, `PowerAssertionError`).
 - CLI parsing/validation lives in `ParsableCommand.validate()`; surface bad
   input as `ValidationError`, not a crash.
+- **Every parameter has a short alias.** When adding any flag or option, give it
+  a single-character short alias alongside the long form (as `--help`/`-h` and
+  `--version`/`-v` do). Choose a mnemonic short, avoid collisions, and treat the
+  short name as a stable contract once shipped. Current shorts: `-d`/`--display`,
+  `-s`/`--system`, `-r`/`--reason`.
 
 ## Testing conventions
 

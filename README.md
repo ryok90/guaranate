@@ -29,6 +29,7 @@ tracked in [`PLAN.md`](PLAN.md).
 | Native `IOPMAssertion` (no `caffeinate`) | ✅ shipped |
 | Elapsed / remaining / end-time display | ✅ shipped |
 | Ctrl+C / SIGTERM cleanup, no stale assertion | ✅ shipped |
+| Live controls: extend / shorten / make permanent | ✅ shipped |
 | Non-TTY-friendly output | ✅ shipped |
 | `guaranate while -- <cmd>` | 🔜 v0.2 |
 | `guaranate until <HH:MM>` | 🔜 v0.2 |
@@ -99,7 +100,7 @@ centered header, sized to your terminal width:
   Assertion     · · · · · System sleep
   Display       · · · · · ·  May sleep
 
-Press Ctrl+C or q to stop
+  +/- 5m  ·  p permanent  ·  q/Ctrl+C quit
 ```
 
 The bar is drawn with a green→berry-red gradient (truecolor or 256-color,
@@ -111,9 +112,22 @@ spinner (`⠋ Awake — until interrupted`). Color and Unicode degrade
 independently: `NO_COLOR` drops color, and a `dumb` or non-UTF-8 terminal falls
 back to a plain ASCII bar (`[####----]`) with no escape codes.
 
-Press **`q`** or **Ctrl+C** to end a live session; it is also released
-automatically when the duration elapses or on `SIGTERM` — never leaving a stale
-sleep inhibitor behind.
+### Live controls
+
+While a timed session is running on a TTY, adjust it from the keyboard without
+dropping the assertion — it stays held continuously across every change:
+
+| Key | Action |
+| --- | --- |
+| `+` | Extend the deadline by 5 minutes (repeatable). |
+| `-` | Shorten the deadline by 5 minutes (floored at "expire now"). |
+| `p` / `0` | Promote to a permanent session (no deadline; held until interrupted). |
+| `q` | Quit (same as Ctrl+C). |
+
+Shortening below the remaining time expires the session cleanly. The session is
+also released automatically when the duration elapses or on `SIGTERM` — never
+leaving a stale sleep inhibitor behind. When stdin is not a TTY these controls
+are inactive and behavior is unchanged.
 
 ### Assertion modes
 

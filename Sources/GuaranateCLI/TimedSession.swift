@@ -7,13 +7,17 @@ import GuaranateCore
 /// Lifecycle:
 /// 1. Acquire the requested power assertion.
 /// 2. Render elapsed / remaining / end time once per second.
-/// 3. On expiry, `q`/Ctrl+C (SIGINT), or SIGTERM: release the assertion and exit.
+/// 3. Accept live keyboard controls on a TTY: `+`/`-` extend or shorten the
+///    deadline by a step, `p`/`0` promote to a permanent (indefinite) session,
+///    and `q` quits. The assertion stays held across every adjustment — no
+///    release/re-acquire, no gap in sleep prevention.
+/// 4. On expiry, `q`/Ctrl+C (SIGINT), or SIGTERM: release the assertion and exit.
 ///
 /// The assertion is released on every exit path, so no stale sleep inhibitor is
 /// left behind. All state is touched only on the main dispatch queue.
 final class TimedSession: @unchecked Sendable {
     private let start: Date
-    private let deadline: Deadline?
+    private var deadline: Deadline?
     private let assertionType: PowerAssertionType
     private let reason: String
     private let power: PowerAsserting
@@ -25,6 +29,9 @@ final class TimedSession: @unchecked Sendable {
     private var keyboardSource: DispatchSourceRead?
     private var originalTerminal: termios?
     private var finished = false
+
+    /// Step applied by the live `+` / `-` controls: extend or shorten by 5 minutes.
+    private static let adjustmentStep: TimeInterval = 5 * 60
 
     init(
         durationSeconds: Int?,
@@ -75,11 +82,12 @@ final class TimedSession: @unchecked Sendable {
         }
     }
 
-    /// Puts the terminal in cbreak mode (no line buffering, no echo) so a lone
-    /// `q`/`Q` keypress ends the session. `ISIG` stays enabled so Ctrl+C still
-    /// raises SIGINT. No-op unless both stdin and stdout are TTYs (the live
-    /// frame's control); the original attributes are restored on every exit
-    /// path via `restoreTerminal` in `finish`.
+    /// Puts the terminal in cbreak mode (no line buffering, no echo) so single
+    /// keypresses drive the session live: `q`/`Q` quits, `+`/`=` and `-`/`_`
+    /// adjust the deadline, and `0`/`p`/`P` promote to permanent. `ISIG` stays
+    /// enabled so Ctrl+C still raises SIGINT. No-op unless both stdin and stdout
+    /// are TTYs (the live frame's control); the original attributes are restored
+    /// on every exit path via `restoreTerminal` in `finish`.
     private func installKeyboard() {
         guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else { return }
         var attrs = termios()
@@ -93,8 +101,17 @@ final class TimedSession: @unchecked Sendable {
             var byte: UInt8 = 0
             let n = read(STDIN_FILENO, &byte, 1)
             guard n > 0 else { self?.keyboardSource?.cancel(); return }
-            if byte == UInt8(ascii: "q") || byte == UInt8(ascii: "Q") {
+            switch byte {
+            case UInt8(ascii: "q"), UInt8(ascii: "Q"):
                 self?.finish(interrupted: true)
+            case UInt8(ascii: "+"), UInt8(ascii: "="):
+                self?.extend()
+            case UInt8(ascii: "-"), UInt8(ascii: "_"):
+                self?.shorten()
+            case UInt8(ascii: "0"), UInt8(ascii: "p"), UInt8(ascii: "P"):
+                self?.promote()
+            default:
+                break
             }
         }
         keyboardSource = source
@@ -115,6 +132,46 @@ final class TimedSession: @unchecked Sendable {
         } else {
             renderer.renderFrame(deadline: deadline, start: start, type: assertionType, now: now)
         }
+    }
+
+    // MARK: - Live controls
+
+    /// Extends the deadline by one step, keeping the assertion held. No-op on an
+    /// already-permanent session.
+    private func extend() {
+        guard let deadline else { return }
+        let now = Date()
+        self.deadline = deadline.extended(by: Self.adjustmentStep, at: now)
+        redrawNow(now)
+    }
+
+    /// Shortens the deadline by one step, floored at "expire now". If the floor
+    /// is reached the session ends immediately (a clean expiry, exit 0).
+    private func shorten() {
+        guard let deadline else { return }
+        let now = Date()
+        let adjusted = deadline.shortened(by: Self.adjustmentStep, at: now)
+        self.deadline = adjusted
+        if adjusted.isExpired(at: now) {
+            finish(interrupted: false)
+        } else {
+            redrawNow(now)
+        }
+    }
+
+    /// Promotes the session to permanent by dropping the deadline, reusing the
+    /// indefinite-mode semantics (held until interrupted). No-op if already
+    /// permanent.
+    private func promote() {
+        guard deadline != nil else { return }
+        deadline = nil
+        redrawNow(Date())
+    }
+
+    /// Redraws the live frame immediately so an adjustment is reflected without
+    /// waiting for the next per-second tick. No-op off-TTY (the renderer guards).
+    private func redrawNow(_ now: Date) {
+        renderer.renderFrame(deadline: deadline, start: start, type: assertionType, now: now)
     }
 
     // MARK: - Teardown

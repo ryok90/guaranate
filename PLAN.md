@@ -90,6 +90,19 @@ Refs: spec "Bootstrap target", "v0.1", "Recommended stack".
     `Sources/GuaranateCLI/TimedSession.swift`,
     `Sources/GuaranateCore/Terminal/ProgressBar.swift`, #21.
 
+- [x] `M1-T12` Live controls for a running timed session: extend, shorten, or
+  promote to permanent from the keyboard.
+  - Acceptance: on a TTY, `+`/`-` extend/shorten the deadline by a step and
+    `p`/`0` drops the deadline (indefinite semantics), each reflected in the
+    live `Remaining`/`Ends` and the actual expiry; the assertion is held
+    continuously across every adjustment (no release/re-acquire); shortening
+    floors at "expire now" and ends the session cleanly (exit 0); off-TTY
+    behavior is unchanged; no exit path leaves a stale assertion; deadline
+    extend/shorten math is a pure function of injected `now` and unit-tested.
+  - Refs: `Sources/GuaranateCore/Time/Deadline.swift`,
+    `Sources/GuaranateCLI/TimedSession.swift`,
+    `Sources/GuaranateCLI/Output/TerminalRenderer.swift`, #20.
+
 ---
 
 ## M2 — v0.2 Process lifecycle · `todo`

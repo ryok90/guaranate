@@ -89,7 +89,7 @@ final class TerminalRenderer: @unchecked Sendable {
         lines.append(row("Assertion", type.assertionLabel, .accent, layout: layout))
         lines.append(row("Display", type.displayLabel, type.allowsDisplaySleep ? .ok : .warn, layout: layout))
         lines.append("")
-        lines.append(footer)
+        lines.append(footer(hasDeadline: deadline != nil))
 
         redraw(lines)
     }
@@ -143,9 +143,17 @@ final class TerminalRenderer: @unchecked Sendable {
         return String(repeating: " ", count: pad) + "🌿 " + paint(name, code: code)
     }
 
-    private var footer: String {
-        style("Press ", .label) + style("Ctrl+C", .value) + style(" or ", .label)
-            + style("q", .value) + style(" to stop", .label)
+    /// Live control hints. A timed session can extend/shorten/promote; a
+    /// permanent one only quits. Keys mirror `TimedSession`'s handler.
+    private func footer(hasDeadline: Bool) -> String {
+        let sep = style(useUnicode ? "  ·  " : "  |  ", .track)
+        var groups: [String] = []
+        if hasDeadline {
+            groups.append(style("+", .value) + style("/", .label) + style("-", .value) + style(" 5m", .label))
+            groups.append(style("p", .value) + style(" permanent", .label))
+        }
+        groups.append(style("q", .value) + style("/", .label) + style("Ctrl+C", .value) + style(" quit", .label))
+        return indent + groups.joined(separator: sep)
     }
 
     /// A steady spinner for indefinite sessions; advances once per redraw.

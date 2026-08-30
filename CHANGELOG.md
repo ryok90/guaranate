@@ -21,6 +21,11 @@ dated, versioned section.
 - Short aliases for every option: `-d`/`--display`, `-s`/`--system`, and
   `-r`/`--reason` (#7).
 - Press `q` (or Ctrl+C) to end a live session from the keyboard (#21).
+- Live keyboard controls for a running timed session (on a TTY): `+` / `-`
+  extend or shorten the deadline by 5 minutes, `p` (or `0`) promotes the session
+  to a permanent keep-awake, and `q` quits. The power assertion stays held
+  across every adjustment — no release/re-acquire, no gap in sleep prevention
+  (#20).
 
 ### Changed
 

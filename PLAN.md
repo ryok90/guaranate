@@ -183,7 +183,7 @@ notifications). No trigger engine. Refs: spec "Future menu-bar companion".
 Refs: spec "Distribution".
 
 - [ ] `DIST-T1` Homebrew tap (`brew tap ryok90/guaranate`); consider `homebrew/core` when mature.
-- [ ] `DIST-T2` GitHub Releases: tagged, tested, built binaries (`arm64` + `x86_64` or universal), checksums.
+- [x] `DIST-T2` GitHub Releases: tagged, tested, built binaries (`arm64` + `x86_64` or universal), checksums.
 - [ ] `DIST-T3` Release automation: test → build → package → checksums → publish → update tap.
 - [ ] `DIST-T4` (Later) npm thin installer/launcher for the native binary — never a Node.js core dependency.
 

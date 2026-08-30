@@ -80,7 +80,7 @@ Refs: spec "Bootstrap target", "v0.1", "Recommended stack".
 
 ## M2 — v0.2 Process lifecycle · `todo`
 
-Goal: make `guaranate while -- <cmd>` a signature, polished workflow; add `until`.
+Goal: make `guaranate while -- <cmd>` a signature, polished workflow; add `until` and `watch <pid>`.
 Refs: spec "Flagship workflow", "v0.2", "Process model" (in-process case).
 
 - [ ] `M2-T1` `ChildProcess` abstraction in `GuaranateCore`.
@@ -102,6 +102,8 @@ Refs: spec "Flagship workflow", "v0.2", "Process model" (in-process case).
   - Acceptance: computes duration to next occurrence of local time; passed-time behavior documented AND tested.
   - Refs: spec "Run until a clock time".
 - [ ] `M2-T9` Tests: child monitoring, signal forwarding, exit-code propagation, `until` calculation.
+- [ ] `M2-T10` `watch <pid>` command — hold the assertion until an already-running process exits.
+  - Acceptance: `guaranate watch <pid>` acquires on start and releases exactly when the PID exits (kqueue `NOTE_EXIT`, not polling); unknown/already-dead PID exits cleanly without acquiring; Ctrl+C releases and detaches without killing the watched process; no stale assertion on any exit path. Reuses the M2-T5 release machinery; accepts `--reason`. Covers the caffeinate `-w <pid>` gap (guaranate otherwise only guards processes it launches).
 
 Design note: the bare-duration root command and subcommands must coexist —
 resolve the argument-parser routing so `guaranate 10m` and `guaranate while …`
@@ -160,7 +162,8 @@ Refs: spec "External tool API", "Lease design", "Process model" (daemon case).
 
 Refs: spec "v0.5", "Assertion modes", "Design principles / Safe cleanup".
 
-- [ ] `M5-T1` Broader assertion-type options with understandable naming.
+- [ ] `M5-T1` Broader assertion-type options with understandable naming, including a disk-idle mode.
+  - Acceptance: expose the IOKit `PreventDiskIdleSleep` assertion behind an understandable flag (e.g. `--disk`), mappable alone or alongside existing modes; covers the caffeinate `-m` gap. Document that `--system` (`PreventSystemSleep`) is honored only on AC power, mirroring caffeinate `-s`.
 - [ ] `M5-T2` Better inspection of active assertions; clearer `status` / `why`.
 - [ ] `M5-T3` `why --all` — explain relevant system-wide assertions where macOS exposes reliable data.
 - [ ] `M5-T4` Structured machine-readable status refinements.

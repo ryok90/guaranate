@@ -1,0 +1,5 @@
+# Enable the "Sponsor" button by uncommenting and filling in a platform.
+# Docs: https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+#
+# github: [ryok90]
+# custom: ["https://example.com/donate"]

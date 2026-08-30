@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a defect in Guaranate
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not use this form for security issues —
+        see [SECURITY.md](https://github.com/ryok90/guaranate/security/policy).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact command line(s) you ran.
+      placeholder: |
+        guaranate 2h --display
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Guaranate version
+      description: Output of `guaranate --version`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "14.5 (Sonoma)"
+    validations:
+      required: true
+  - type: textarea
+    id: assertions
+    attributes:
+      label: pmset assertions (if relevant)
+      description: Output of `pmset -g assertions` while the issue occurs.
+      render: shell
+    validations:
+      required: false

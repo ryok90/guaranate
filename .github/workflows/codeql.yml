@@ -23,7 +23,7 @@ jobs:
       actions: read # required by CodeQL to read workflow-run metadata (private repos)
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Select Xcode (Swift 6)
         uses: maxim-lobanov/setup-xcode@v1

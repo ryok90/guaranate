@@ -1,8 +1,4 @@
 # Dependabot configuration.
-#
-# NOTE: Dependabot does not support the Swift Package Manager ecosystem, so the
-# swift-argument-parser dependency in Package.swift cannot be auto-updated here.
-# Only GitHub Actions versions are kept current below.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -11,6 +7,16 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "ci"
+    labels:
+      - "dependencies"
+      - "skip-changelog"
+
+  - package-ecosystem: "swift"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps"
     labels:
       - "dependencies"
       - "skip-changelog"

@@ -33,6 +33,7 @@ source of truth for *sequencing and status*.
 | M5 | v0.5 — Power modes, closed-lid, deeper observability | todo | M4 |
 | M6 | Later — Menu-bar companion | deferred | M4 |
 | DIST | Distribution (Homebrew, GitHub Releases, npm) | todo | M1 |
+| DOCS | Documentation website (Astro Starlight + Zephyr Cloud) | in-progress | M1 |
 
 ---
 
@@ -203,6 +204,49 @@ Refs: spec "Distribution".
 - [x] `DIST-T2` GitHub Releases: tagged, tested, built binaries (`arm64` + `x86_64` or universal), checksums.
 - [ ] `DIST-T3` Release automation: test → build → package → checksums → publish → update tap.
 - [ ] `DIST-T4` (Later) npm thin installer/launcher for the native binary — never a Node.js core dependency.
+
+---
+
+## DOCS — Documentation website · `in-progress`
+
+Goal: a user-facing docs site that cannot drift from the shipped binary, living
+in this repository as a self-contained `docs/` package (no root `package.json`,
+no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
+"Verification", spec "Core user-facing features".
+
+- [x] `DOCS-T1` Astro Starlight site under `docs/`, self-contained.
+  - Acceptance: `npm run build` in `docs/` produces a static site; the repository
+    root has no `package.json`; `swift build -c release` and `swift test` are
+    unaffected by the presence of `docs/`.
+  - Refs: `docs/package.json`, `docs/astro.config.mjs`.
+- [x] `DOCS-T2` CLI reference generated from the binary, not hand-maintained.
+  - Acceptance: `docs/scripts/gen-cli-reference.mjs` renders
+    `docs/src/content/docs/reference/cli.md` from
+    `guaranate --experimental-dump-help`; `--check` mode fails on a stale page and
+    runs in the macOS `Build & Test` job, so every documented flag and short alias
+    matches the shipped binary.
+  - Refs: `docs/scripts/gen-cli-reference.mjs`, `.github/workflows/ci.yml`.
+- [x] `DOCS-T3` Zephyr Cloud deployment wired into the docs build.
+  - Acceptance: `withZephyr()` in the Astro config with `output: 'static'`;
+    `.github/workflows/docs.yml` deploys `main` and internal PRs with `ZE_CI_TOKEN`
+    + `ZE_FAIL_BUILD=true` (a deploy or plugin error fails the job) and
+    build-verifies fork PRs without a token; internal PRs surface the preview URL.
+  - Refs: `.github/workflows/docs.yml`, `docs/README.md`.
+- [x] `DOCS-T4` CI path split between Swift and docs.
+  - Acceptance: a docs-only PR does not run the Swift build/test/smoke job; a
+    Swift-only PR does not run the docs job.
+  - Refs: `.github/workflows/ci.yml`, `.github/workflows/docs.yml`.
+- [x] `DOCS-T5` v0.1 content: landing, install, sessions, how-it-works, roadmap.
+  - Acceptance: no page advertises an unshipped command; planned surface is
+    confined to the roadmap page and marked as planned; `GUARANATE.md`, `PLAN.md`,
+    and `AGENTS.md` stay root-internal and are not duplicated into `docs/`.
+- [ ] `DOCS-T6` Canonical domain and Zephyr environment wiring.
+  - Acceptance: a production domain is attached via Zephyr Tags & Environments,
+    `DOCS_SITE_URL` is set for `main` builds (enabling canonical URLs and the
+    sitemap), and `README.md` links the live site.
+  - Refs: https://docs.zephyr-cloud.io/features/tags-environments.
+- [-] `DOCS-T7` Docs versioning. Deferred: pre-1.0 there is only one version to
+  document.
 
 ---
 

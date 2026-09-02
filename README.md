@@ -37,6 +37,21 @@ tracked in [`PLAN.md`](PLAN.md).
 
 ---
 
+## Documentation
+
+This README is the quickstart. The full user guide — install, session options,
+assertion modes, terminal output, and a CLI reference generated from the binary's
+own help output — lives in [`docs/`](docs/), a self-contained
+[Astro Starlight](https://starlight.astro.build/) site deployed with
+[Zephyr Cloud](https://docs.zephyr-cloud.io). Every build gets its own immutable
+preview URL; a canonical domain will be linked here once it is wired up.
+
+```bash
+cd docs && npm install && npm run dev
+```
+
+---
+
 ## Install
 
 ### With Homebrew

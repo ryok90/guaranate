@@ -1,0 +1,102 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - .github/workflows/docs.yml
+  pull_request:
+    paths:
+      - "docs/**"
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  site:
+    name: Build & deploy site
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # sticky preview-URL comment on internal PRs
+    defaults:
+      run:
+        working-directory: docs
+    env:
+      # Zephyr deploys during `npm run build`; there is no separate upload step.
+      #
+      # Pull requests from forks cannot read repository secrets, so the token is
+      # empty there: Zephyr logs its errors, skips deploying, and this job still
+      # build-verifies the site. `ZE_FAIL_BUILD` must be the literal "true" for
+      # Zephyr to rethrow plugin/deployment errors instead of logging them, so it
+      # is only set when a token is actually available.
+      ZE_CI_TOKEN: ${{ secrets.ZEPHYR_CI_TOKEN }}
+      ZE_FAIL_BUILD: ${{ secrets.ZEPHYR_CI_TOKEN != '' && 'true' || '' }}
+    steps:
+      # Zephyr requires an initialized git repository at build time.
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (deploys through Zephyr when a token is available)
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee build.log
+
+      - name: Report deployment status
+        id: zephyr
+        if: always()
+        run: |
+          if [[ -z "$ZE_CI_TOKEN" ]]; then
+            echo "No Zephyr CI token available (fork pull request): the site was build-verified, not deployed." \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          url="$(sed -E $'s/\x1b\\[[0-9;]*[a-zA-Z]//g' build.log \
+            | grep -E '^ *ZEPHYR ' \
+            | grep -Eo 'https://[^ ]+' \
+            | grep -v 'zephyr-cloud\.io' \
+            | tail -n 1 || true)"
+          if [[ -z "$url" ]]; then
+            echo "::warning::Zephyr did not report a deployment URL."
+            exit 0
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Deployed to Zephyr: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment the preview URL on the pull request
+        if: >
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          steps.zephyr.outputs.url != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          URL: ${{ steps.zephyr.outputs.url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          marker="<!-- zephyr-docs-preview -->"
+          body="$marker
+          📘 **Docs preview:** $URL
+
+          Built from $HEAD_SHA."
+          id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            --jq "map(select(.body | startswith(\"$marker\"))) | .[0].id // empty")"
+          if [[ -n "$id" ]]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body"
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="$body"
+          fi

@@ -1,0 +1,53 @@
+---
+title: Guaranate
+description: A developer-friendly macOS keep-awake CLI built on native IOKit power assertions.
+template: splash
+hero:
+  tagline: Keep your Mac awake when work needs to finish. Give your Mac some guaraná.
+  actions:
+    - text: Install
+      link: /guides/install/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/ryok90/guaranate
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+```bash
+guaranate 2h              # stay awake for two hours
+guaranate                 # stay awake until interrupted
+guaranate 45m --display   # keep the display awake too
+```
+
+<CardGrid stagger>
+  <Card title="Human durations" icon="seti:clock">
+    `30m`, `2h`, `1h30m`, `90s`, `1d2h` — or a bare number of seconds. No
+    `-t 7200` arithmetic.
+  </Card>
+  <Card title="Native, not a wrapper" icon="apple">
+    Talks to IOKit `IOPMAssertion*` directly. `/usr/bin/caffeinate` is never
+    invoked.
+  </Card>
+  <Card title="Never leaves a stale assertion" icon="approve-check">
+    Expiry, `q`, Ctrl+C, and `SIGTERM` all release the assertion before the
+    process exits.
+  </Card>
+  <Card title="Readable while it runs" icon="laptop">
+    A live progress frame on a TTY; one start line and one completion line when
+    output is piped.
+  </Card>
+</CardGrid>
+
+Guaranate is a small macOS command-line utility for managing sleep-prevention
+sessions. The name is a play on **guaraná**, the Brazilian stimulant, and
+Apple's `caffeinate` command.
+
+:::note[Where the project stands]
+Version 0.1 ships timed and indefinite sessions. Commands that are planned but
+not yet released — `while`, `until`, `status`, `why`, `--json`, leases — are
+listed on the [roadmap](/reference/roadmap/) and are deliberately absent from
+these guides until they ship.
+:::

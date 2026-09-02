@@ -4,6 +4,13 @@ import { withZephyr } from 'zephyr-astro-integration';
 
 const repo = 'https://github.com/ryok90/guaranate';
 
+// Zephyr deploys during the build, and with no credentials at all it waits on an
+// interactive auth flow until that times out — minutes added to a build that only
+// needs verifying. CI sets SKIP_ZEPHYR=true when no `ZE_CI_TOKEN` is available,
+// which is the case for pull requests from forks: they cannot read repository
+// secrets, so they build-verify the site instead of deploying it.
+const deploy = process.env.SKIP_ZEPHYR !== 'true';
+
 export default defineConfig({
   // Set DOCS_SITE_URL once a canonical domain is wired up in Zephyr (Tags &
   // Environments). Until then every build is served from its own immutable
@@ -35,6 +42,6 @@ export default defineConfig({
         },
       ],
     }),
-    withZephyr(),
+    ...(deploy ? [withZephyr()] : []),
   ],
 });

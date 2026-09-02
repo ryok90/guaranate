@@ -48,10 +48,20 @@ a git repository must be initialized (CI checkouts satisfy this). Consequences:
   deployments.
 - `ZE_FAIL_BUILD: true` is set in CI. Without it, Zephyr logs deployment errors
   and lets the build pass.
+- `SKIP_ZEPHYR=true` drops the integration from the Astro config, producing a
+  plain static build. CI sets it whenever no `ZE_CI_TOKEN` is available, because
+  with no credentials the plugin blocks on an interactive auth flow until it times
+  out — five minutes for a build that takes two seconds.
 
 `.github/workflows/docs.yml` deploys pushes to `main` and internal pull requests,
 and build-verifies pull requests from forks — which cannot read repository
 secrets, and so intentionally run without a token and without deploying.
 
-Building locally will also attempt a deployment if you are logged in to Zephyr.
-Use `npm run dev` for authoring; it never deploys.
+Building locally deploys if you are logged in to Zephyr. To build the site
+without deploying:
+
+```bash
+SKIP_ZEPHYR=true npm run build
+```
+
+`npm run dev` never deploys.

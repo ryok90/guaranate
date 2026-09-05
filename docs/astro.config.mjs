@@ -29,6 +29,11 @@ export default defineConfig({
       social: [{ icon: 'github', label: 'GitHub', href: repo }],
       editLink: { baseUrl: `${repo}/edit/main/docs/` },
       lastUpdated: true,
+      customCss: [
+        '@fontsource-variable/figtree',
+        '@fontsource-variable/jetbrains-mono',
+        './src/styles/theme.css',
+      ],
       sidebar: [
         {
           label: 'Start here',

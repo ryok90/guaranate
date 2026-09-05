@@ -8,16 +8,20 @@ hero:
     file: ../../assets/brand/terminal.png
     alt: The Guaranate mascot inside a terminal window
   actions:
+    - text: Read the docs
+      link: /guides/timed-sessions/
+      icon: right-arrow
     - text: Install
       link: /guides/install/
-      icon: right-arrow
+      icon: down-caret
+      variant: secondary
     - text: View on GitHub
       link: https://github.com/ryok90/guaranate
       icon: external
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 ```bash
 guaranate 2h              # stay awake for two hours
@@ -26,7 +30,7 @@ guaranate 45m --display   # keep the display awake too
 ```
 
 <CardGrid stagger>
-  <Card title="Human durations" icon="seti:clock">
+  <Card title="Human durations" icon="moon">
     `30m`, `2h`, `1h30m`, `90s`, `1d2h` — or a bare number of seconds. No
     `-t 7200` arithmetic.
   </Card>
@@ -42,6 +46,31 @@ guaranate 45m --display   # keep the display awake too
     A live progress frame on a TTY; one start line and one completion line when
     output is piped.
   </Card>
+</CardGrid>
+
+## Where to next
+
+<CardGrid>
+  <LinkCard
+    title="Keeping your Mac awake"
+    href="/guides/timed-sessions/"
+    description="Duration syntax, indefinite sessions, assertion modes, exit codes, and the live frame."
+  />
+  <LinkCard
+    title="Install"
+    href="/guides/install/"
+    description="Homebrew, a release binary with checksum, or a build from source."
+  />
+  <LinkCard
+    title="How it works"
+    href="/guides/how-it-works/"
+    description="IOKit power assertions, verifying a live session with pmset, and the cleanup guarantee."
+  />
+  <LinkCard
+    title="CLI reference"
+    href="/reference/cli/"
+    description="Every command, flag, and short alias — generated from the binary's own help output."
+  />
 </CardGrid>
 
 Guaranate is a small macOS command-line utility for managing sleep-prevention

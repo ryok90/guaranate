@@ -60,6 +60,26 @@ Astro's image pipeline does not apply.
 ./scripts/gen-brand-assets.sh    # only needed if the sheet or a crop changes
 ```
 
+Variants used as a Starlight hero are padded to a square canvas: hero images are
+rendered at a fixed 400x400, and Astro crops to fill when both dimensions are set,
+which otherwise shaves the top and bottom off a non-square asset.
+
+## Theme
+
+`src/styles/theme.css` is the whole visual identity, wired through Starlight's
+`customCss`:
+
+- **Colour.** Starlight builds its palette from HSL ramps at hue 224 (cool grey).
+  The same ramps are rotated to a warm hue and the accent ramp is rebuilt around
+  the mascot's berry red (`#d31a0e`), which preserves Starlight's contrast steps.
+  Aside and card accents are remapped to leaf green, guaraná amber, and berry red
+  instead of Starlight's blue/purple rotation.
+- **Type.** [Figtree](https://fontsource.org/fonts/figtree) for UI and prose,
+  [JetBrains Mono](https://fontsource.org/fonts/jetbrains-mono) for code, both
+  self-hosted via Fontsource — no requests to a font CDN.
+- **Details.** Tighter heading tracking, a leaf-green rule under `h2` section
+  headings, a berry glow behind hero art, and a berry-red primary call to action.
+
 ## Deployment
 
 Zephyr deploys **during** `npm run build` — there is no separate upload step, and

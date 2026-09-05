@@ -24,22 +24,30 @@ cd "$docs_dir"
 sheet="src/assets/brand/source-sheet.png"
 [[ -f "$sheet" ]] || { echo "missing $sheet" >&2; exit 1; }
 
-# name|output|crop WxH+X+Y|fuzz
+# Starlight renders a hero image at a fixed 400x400, and Astro crops to fill when
+# both dimensions are given — so any variant used as a hero is padded to a square
+# canvas (plus a little breathing room) instead of losing its top and bottom edges.
+#
+# name|output|crop WxH+X+Y|fuzz|square
 variants=(
-  "mascot|src/assets/brand/mascot.png|407x496+70+42|5"
-  "terminal|src/assets/brand/terminal.png|449x445+1017+538|2"
-  "sticker|src/assets/brand/sticker.png|449x496+1017+42|15"
-  "wink|public/brand/wink.png|407x445+70+538|5"
-  "happy|public/brand/happy.png|473x445+540+538|5"
-  "badge|public/brand/badge.png|473x496+540+42|15"
+  "mascot|src/assets/brand/mascot.png|407x496+70+42|5|no"
+  "terminal|src/assets/brand/terminal.png|449x445+1017+538|2|yes"
+  "sticker|src/assets/brand/sticker.png|449x496+1017+42|15|yes"
+  "wink|public/brand/wink.png|407x445+70+538|5|no"
+  "happy|public/brand/happy.png|473x445+540+538|5|no"
+  "badge|public/brand/badge.png|473x496+540+42|15|no"
 )
 
 for variant in "${variants[@]}"; do
-  IFS='|' read -r name out crop fuzz <<< "$variant"
+  IFS='|' read -r name out crop fuzz square <<< "$variant"
   mkdir -p "$(dirname "$out")"
   magick "$sheet" -crop "$crop" +repage \
     -alpha set -fuzz "${fuzz}%" -fill none -floodfill +0+0 black \
     -trim +repage "$out"
+  if [[ "$square" == yes ]]; then
+    side="$(magick "$out" -format '%[fx:int(max(w,h)*1.08)]' info:)"
+    magick "$out" -background none -gravity center -extent "${side}x${side}" "$out"
+  fi
   pngquant --force --skip-if-larger --quality 70-95 --output "$out" "$out" || true
   printf '%-9s %-32s %s\n' "$name" "$out" "$(magick "$out" -format '%wx%h' info:)"
 done

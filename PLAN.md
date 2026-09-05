@@ -254,6 +254,14 @@ no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
     assets read correctly at favicon size and on both light and dark backgrounds.
   - Refs: `docs/scripts/gen-brand-assets.sh`, `docs/src/assets/brand/`,
     `docs/public/brand/`, #24.
+- [x] `DOCS-T9` Visual identity: brand palette, type, and navigation to the docs.
+  - Acceptance: Starlight's grey and accent ramps are rotated to warm neutrals and
+    the mascot's berry red, with aside/card accents in leaf green and guaraná amber;
+    Figtree and JetBrains Mono are self-hosted (no font-CDN requests); hero images
+    render uncropped; the landing page offers a "Read the docs" primary action and a
+    "Where to next" card grid, not just an install link. Verified in both light and
+    dark themes.
+  - Refs: `docs/src/styles/theme.css`, `docs/src/content/docs/index.mdx`.
 
 ---
 

@@ -1,6 +1,12 @@
-# 🌿 Guaranate
+<div align="center">
 
-> A developer-friendly macOS keep-awake CLI.
+<img src="docs/src/assets/brand/mascot.png" alt="The Guaranate guaraná berry mascot" width="180">
+
+# Guaranate
+
+**A developer-friendly macOS keep-awake CLI.**
+
+</div>
 
 Guaranate is a small, native macOS command-line utility for managing
 sleep-prevention sessions with a friendlier, more scriptable interface than
@@ -34,6 +40,23 @@ tracked in [`PLAN.md`](PLAN.md).
 | `guaranate until <HH:MM>` | 🔜 v0.2 |
 | `status` / `why` / `--json` | 🔜 v0.3 |
 | `acquire` / `renew` / `release` leases | 🔜 v0.4 |
+
+---
+
+## Documentation
+
+<img src="docs/src/assets/brand/terminal.png" alt="The Guaranate mascot inside a terminal window" width="200" align="right">
+
+This README is the quickstart. The full user guide — install, session options,
+assertion modes, terminal output, and a CLI reference generated from the binary's
+own help output — lives in [`docs/`](docs/), a self-contained
+[Astro Starlight](https://starlight.astro.build/) site deployed with
+[Zephyr Cloud](https://docs.zephyr-cloud.io). Every build gets its own immutable
+preview URL; a canonical domain will be linked here once it is wired up.
+
+```bash
+cd docs && npm install && npm run dev
+```
 
 ---
 

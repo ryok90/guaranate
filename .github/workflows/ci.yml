@@ -9,12 +9,17 @@ on:
       - "**/*.md"
       - LICENSE
       - .gitignore
+      # The docs site is a self-contained Node package; `swift build` and
+      # `swift test` do not know it exists. The generated CLI reference it ships
+      # is verified below, in the job that can actually build the binary.
+      - "docs/**"
       - .github/dependabot.yml
       - .github/FUNDING.yml
       - .github/CODEOWNERS
       - .github/ISSUE_TEMPLATE/**
       - .github/workflows/codeql.yml
       - .github/workflows/changelog.yml
+      - .github/workflows/docs.yml
       - .github/workflows/release.yml
   workflow_dispatch:
 
@@ -53,6 +58,14 @@ jobs:
 
       - name: Build (release)
         run: swift build -c release
+
+      # The docs CLI reference is generated from the binary's own help dump.
+      # This is the only job that can build the macOS binary, so it is where a
+      # CLI change that forgot to regenerate the page has to fail.
+      - name: Verify the generated CLI reference is current
+        env:
+          GUARANATE_BIN: .build/release/guaranate
+        run: node docs/scripts/gen-cli-reference.mjs --check
 
       - name: Test
         run: swift test

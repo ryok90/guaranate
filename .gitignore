@@ -4,3 +4,9 @@
 DerivedData/
 .DS_Store
 .serena/
+
+# Docs site (docs/) build output and dependencies
+docs/node_modules/
+docs/dist/
+docs/.astro/
+docs/build.log

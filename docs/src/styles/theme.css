@@ -1,0 +1,154 @@
+/* Guaranate theme: berry red accents, warm neutrals, guaraná-leaf greens.
+ *
+ * Starlight's own palette is built from HSL ramps at hue 224 (cool blue-grey), so
+ * the neutrals here are the same ramps rotated to a warm hue and the accent ramp
+ * is rebuilt around the mascot's berry red (#d31a0e). Keeping the lightness and
+ * saturation steps intact preserves Starlight's contrast relationships.
+ */
+
+:root,
+::backdrop {
+  /* Warm neutrals (dark mode) */
+  --sl-color-white: hsl(0, 0%, 100%);
+  --sl-color-gray-1: hsl(20, 18%, 94%);
+  --sl-color-gray-2: hsl(20, 8%, 78%);
+  --sl-color-gray-3: hsl(20, 8%, 57%);
+  --sl-color-gray-4: hsl(20, 9%, 37%);
+  --sl-color-gray-5: hsl(20, 12%, 22%);
+  --sl-color-gray-6: hsl(20, 16%, 14%);
+  --sl-color-black: hsl(20, 15%, 8%);
+
+  /* Berry red accent (dark mode) */
+  --sl-color-accent-low: hsl(5, 55%, 18%);
+  --sl-color-accent: hsl(5, 78%, 47%);
+  --sl-color-accent-high: hsl(6, 85%, 84%);
+  /* Asides and callouts stay in the brand's warm range: guaraná-leaf green for
+     tips, amber for notes, berry red for danger. Caution keeps Starlight's
+     orange, which already fits. */
+  --sl-hue-green: 84;
+  --sl-hue-purple: 84;
+  --sl-hue-blue: 38;
+  --sl-hue-red: 5;
+
+  --guaranate-leaf: hsl(84, 55%, 55%);
+  --guaranate-amber: hsl(38, 82%, 60%);
+  --guaranate-glow: hsla(5, 80%, 45%, 0.28);
+  --sl-font: 'Space Grotesk Variable', var(--sl-font-system);
+  --sl-font-mono: 'JetBrains Mono Variable', var(--sl-font-system-mono);
+}
+
+:root[data-theme='light'],
+[data-theme='light'] ::backdrop {
+  /* Warm neutrals (light mode); the page itself is cream rather than white */
+  --sl-color-white: hsl(20, 15%, 8%);
+  --sl-color-gray-1: hsl(20, 16%, 15%);
+  --sl-color-gray-2: hsl(20, 10%, 24%);
+  --sl-color-gray-3: hsl(20, 8%, 38%);
+  --sl-color-gray-4: hsl(20, 8%, 57%);
+  --sl-color-gray-5: hsl(24, 14%, 79%);
+  --sl-color-gray-6: hsl(32, 34%, 93%);
+  --sl-color-gray-7: hsl(38, 50%, 97%);
+  --sl-color-black: hsl(40, 60%, 99%);
+
+  /* Berry red accent (light mode) */
+  --sl-color-accent-low: hsl(8, 80%, 92%);
+  --sl-color-accent: hsl(5, 82%, 42%);
+  --sl-color-accent-high: hsl(5, 72%, 28%);
+
+  --guaranate-leaf: hsl(84, 60%, 26%);
+  --guaranate-amber: hsl(34, 78%, 42%);
+  --guaranate-glow: hsla(5, 85%, 50%, 0.14);
+}
+
+/* Headings carry the personality: tighter tracking, a heavier cut. */
+h1,
+h2,
+h3,
+.site-title {
+  font-weight: 700;
+  letter-spacing: -0.022em;
+}
+
+.site-title {
+  letter-spacing: -0.01em;
+}
+
+/* The mascot in the header gets a little more presence than Starlight's default. */
+header .site-title img {
+  height: calc(var(--sl-nav-height) - 1.1rem);
+  width: auto;
+}
+
+/* Hero art: a berry glow so the mascot is not floating on flat colour, and 20%
+   smaller than Starlight's default (`min(70%, 20rem)` / `min(100%, 25rem)`) so it
+   sits alongside the title instead of dominating it. */
+.hero > img,
+.hero > .hero-html {
+  width: min(56%, 16rem);
+  filter: drop-shadow(0 0 3rem var(--guaranate-glow));
+}
+
+@media (min-width: 50rem) {
+  .hero > img,
+  .hero > .hero-html {
+    width: min(80%, 20rem);
+  }
+}
+
+/* Leaf-green rule under section headings, the same green as the mascot's leaf.
+   Starlight renders headings as `display: inline` inside a block wrapper, so the
+   rule goes on the wrapper to span the content column. */
+.sl-markdown-content .sl-heading-wrapper.level-h2 {
+  padding-bottom: 0.25em;
+  border-bottom: 2px solid color-mix(in oklab, var(--guaranate-leaf) 45%, transparent);
+}
+
+/* Inline code reads as a warm highlight rather than a grey chip — but not inside
+   headings, where the generated CLI reference sets whole headings in code. */
+.sl-markdown-content
+  :not(pre, astro-slot, .not-content *)
+  > code:not(:where(.not-content *, h1 *, h2 *, h3 *, h4 *, h5 *, h6 *)) {
+  color: var(--sl-color-text-accent);
+  background-color: color-mix(in oklab, var(--sl-color-accent) 12%, var(--sl-color-bg-inline-code));
+}
+
+.sl-markdown-content :is(h1, h2, h3, h4, h5, h6) code {
+  background-color: transparent;
+  color: inherit;
+  border: 0;
+  padding-inline: 0;
+}
+
+/* The primary call to action is berry red in both themes, not a pastel tint.
+   Starlight 0.42 renders hero actions as `.sl-link-button.primary`, whose default
+   background is `--sl-color-text-accent` (the pale `accent-high` ramp in dark
+   mode). Text is literal white because `--sl-color-white` is near-black under
+   `[data-theme='light']`, which would leave dark text on berry red. */
+.sl-link-button.primary {
+  background: var(--sl-color-accent);
+  border-color: var(--sl-color-accent);
+  color: hsl(0, 0%, 100%);
+}
+
+.sl-link-button.primary:hover {
+  background: color-mix(in oklab, var(--sl-color-accent) 85%, black);
+  border-color: color-mix(in oklab, var(--sl-color-accent) 85%, black);
+  color: hsl(0, 0%, 100%);
+}
+
+/* Card accents follow the mascot — leaf green, berry red, guaraná amber — instead
+   of Starlight's orange/purple/green/blue rotation. */
+.card-grid > .card:nth-child(3n + 1) {
+  --sl-card-border: var(--guaranate-leaf);
+  --sl-card-bg: color-mix(in oklab, var(--guaranate-leaf) 16%, transparent);
+}
+
+.card-grid > .card:nth-child(3n + 2) {
+  --sl-card-border: var(--sl-color-accent);
+  --sl-card-bg: color-mix(in oklab, var(--sl-color-accent) 16%, transparent);
+}
+
+.card-grid > .card:nth-child(3n + 3) {
+  --sl-card-border: var(--guaranate-amber);
+  --sl-card-bg: color-mix(in oklab, var(--guaranate-amber) 16%, transparent);
+}

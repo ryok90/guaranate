@@ -53,10 +53,12 @@ final class TerminalRenderer: @unchecked Sendable {
 
     // MARK: - Timed session
 
-    func renderStart(deadline: Deadline?, type: PowerAssertionType) {
+    func renderStart(deadline: Deadline?, type: PowerAssertionType, watching: String? = nil) {
         guard !isInteractive else { return }
         let line: String
-        if let deadline {
+        if let watching {
+            line = "🌿 Guaranate — staying awake while \(watching) runs"
+        } else if let deadline {
             line = "🌿 Guaranate — staying awake for \(TimeFormatting.compact(deadline.duration)), ends \(endTimeFormatter.string(from: deadline.end))"
         } else {
             line = "🌿 Guaranate — staying awake until interrupted"
@@ -64,7 +66,7 @@ final class TerminalRenderer: @unchecked Sendable {
         write(line + "\n")
     }
 
-    func renderFrame(deadline: Deadline?, start: Date, type: PowerAssertionType, now: Date) {
+    func renderFrame(deadline: Deadline?, start: Date, type: PowerAssertionType, now: Date, watching: String? = nil) {
         guard isInteractive else { return }
         hideCursor()
         defer { frame += 1 }
@@ -76,12 +78,16 @@ final class TerminalRenderer: @unchecked Sendable {
             let fraction = deadline.duration > 0 ? deadline.elapsed(at: now) / deadline.duration : 1
             lines.append(progressBarLine(fraction: fraction, layout: layout))
         } else {
-            lines.append(indent + style(spinnerGlyph, .accent) + " " + style("Awake — until interrupted", .value))
+            let label = watching == nil ? "Awake — until interrupted" : "Awake — until the watched process exits"
+            lines.append(indent + style(spinnerGlyph, .accent) + " " + style(label, .value))
         }
         lines.append("")
 
         let elapsed = deadline?.elapsed(at: now) ?? max(0, now.timeIntervalSince(start))
         lines.append(row("Elapsed", TimeFormatting.clock(elapsed), .value, layout: layout))
+        if let watching {
+            lines.append(row("Watching", watching, .value, layout: layout))
+        }
         if let deadline {
             lines.append(row("Remaining", TimeFormatting.clock(deadline.remaining(at: now)), .value, layout: layout))
             lines.append(row("Ends", endTimeFormatter.string(from: deadline.end), .value, layout: layout))
@@ -125,6 +131,27 @@ final class TerminalRenderer: @unchecked Sendable {
             style("Sleep-prevention assertion released", .label),
         ]
         write(lines.joined(separator: "\n") + "\n")
+    }
+
+    // MARK: - Process session
+
+    /// Announces a `while` session in a single line.
+    ///
+    /// The command owns the terminal from here on: its output passes straight
+    /// through, so nothing is redrawn in place and the cursor is left alone.
+    func renderProcessStart(command: String, type: PowerAssertionType) {
+        let detail = " · \(type.assertionLabel), display \(type.displayLabel.lowercased())"
+        write("🌿 Guaranate — staying awake while " + style(command, .value) + " runs"
+            + style(detail, .label) + "\n")
+    }
+
+    /// Reports how the command ended and confirms the assertion was released.
+    func renderProcessFinished(command: String, elapsed: TimeInterval, status: ExitStatus) {
+        let mark = status.isSuccess ? "✓" : "✗"
+        let role: Role = status.isSuccess ? .ok : .warn
+        write(style(mark, role) + " " + style(command, .value) + " \(status.summary) after "
+            + TimeFormatting.compact(elapsed) + "\n")
+        write(style("✓", .ok) + " Sleep-prevention assertion released\n")
     }
 
     // MARK: - Frame composition

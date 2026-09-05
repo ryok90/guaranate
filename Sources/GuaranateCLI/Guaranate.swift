@@ -1,11 +1,12 @@
 import ArgumentParser
-import GuaranateCore
 
-/// Root command: `guaranate <duration>`.
+/// Root command.
 ///
-/// Keeps macOS awake for a human-readable duration. Subcommands (`while`,
-/// `until`, `status`, `acquire`, …) are layered on in later milestones; the
-/// bare-duration form is the v0.1 foundation.
+/// A pure container: it declares no arguments of its own because a command that
+/// owns a positional argument consumes the subcommand name before dispatch can
+/// happen, which silently makes every subcommand unreachable. The bare-duration
+/// form therefore lives in `RunCommand`, registered as the default subcommand, so
+/// `guaranate 10m` and `guaranate while npm test` both work.
 @main
 struct Guaranate: ParsableCommand {
     /// The single source of truth for the CLI version, printed by `-v`/`--version`.
@@ -14,65 +15,22 @@ struct Guaranate: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "guaranate",
         abstract: "A developer-friendly macOS keep-awake CLI.",
-        discussion: "Keep your Mac awake when work needs to finish. Give your Mac some guaraná."
+        usage: """
+            guaranate [<duration>] [--watch <pid>] [--display] [--system] [--reason <text>]
+            guaranate while <command> [<arguments> ...]
+            """,
+        discussion: """
+            Keep your Mac awake when work needs to finish. Give your Mac some guaraná.
+
+              guaranate 2h                  stay awake for two hours
+              guaranate                     stay awake until interrupted
+              guaranate --watch 4821        stay awake until pid 4821 exits
+              guaranate while npm test      stay awake for exactly one command
+
+            The timed form is the default command: see `guaranate run --help` for \
+            its full options, and `guaranate while --help` for the command form.
+            """,
+        subcommands: [RunCommand.self, WhileCommand.self],
+        defaultSubcommand: RunCommand.self
     )
-
-    @Argument(help: "How long to stay awake: 30m, 2h, 1h30m, 90s, or a plain number of seconds. Omit to stay awake until interrupted.")
-    var duration: String?
-
-    @Flag(name: [.customShort("d"), .long], help: "Also keep the display awake (default lets the display sleep).")
-    var display = false
-
-    @Flag(name: [.customShort("s"), .long], help: "Prevent all system sleep.")
-    var system = false
-
-    @Option(name: [.customShort("r"), .long], help: "Reason recorded on the power assertion.")
-    var reason = "Guaranate timed session"
-
-    // Version is handled explicitly (rather than via `CommandConfiguration.version`)
-    // so both a short `-v` and long `--version` alias are available.
-    @Flag(name: [.customShort("v"), .long], help: "Show the version.")
-    var version = false
-
-    func validate() throws {
-        if version { return }
-        if let duration {
-            _ = try parseSeconds(duration)
-        }
-        if display && system {
-            throw ValidationError("Choose at most one of --display or --system.")
-        }
-    }
-
-    func run() throws {
-        if version {
-            print(Self.versionString)
-            return
-        }
-
-        // validate() guarantees any supplied `duration` is parseable here.
-        // Absent duration => an indefinite session that runs until interrupted.
-        let seconds = try duration.map { try parseSeconds($0) }
-        let session = TimedSession(
-            durationSeconds: seconds,
-            assertionType: assertionType,
-            reason: reason,
-            power: PowerManager()
-        )
-        try session.run()
-    }
-
-    private var assertionType: PowerAssertionType {
-        if display { return .preventUserIdleDisplaySleep }
-        if system { return .preventSystemSleep }
-        return .preventUserIdleSystemSleep
-    }
-
-    private func parseSeconds(_ input: String) throws -> Int {
-        do {
-            return try DurationParser.parse(input)
-        } catch {
-            throw ValidationError(String(describing: error))
-        }
-    }
 }

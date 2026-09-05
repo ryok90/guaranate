@@ -58,6 +58,14 @@ const cell = (text) => (text ?? '').replaceAll('|', '\\|');
 
 const isVisible = (argument) => argument.shouldDisplay !== false;
 
+/**
+ * ArgumentParser injects its own `help` subcommand into any command that has
+ * subcommands. It is parser plumbing rather than part of guaranate's surface —
+ * `--help` already documents itself — so it never gets a section.
+ */
+const visibleSubcommands = (command) =>
+  (command.subcommands ?? []).filter((sub) => sub.shouldDisplay !== false && sub.commandName !== 'help');
+
 /** `-d, --display` for flags/options, `<duration>` for positionals. */
 function argumentLabel(argument) {
   if (argument.kind === 'positional') return `\`<${argument.valueName}>\``;
@@ -92,8 +100,7 @@ function synopsis(command) {
     ...args.filter((argument) => argument.kind === 'positional').map(synopsisToken),
     ...args.filter((argument) => argument.kind !== 'positional').map(synopsisToken),
   ].filter(Boolean);
-  const subcommands = (command.subcommands ?? []).filter((sub) => sub.shouldDisplay !== false);
-  if (subcommands.length > 0) tokens.push('[<subcommand>]');
+  if (visibleSubcommands(command).length > 0) tokens.push('[<subcommand>]');
   return [fullName(command), ...tokens].join(' ');
 }
 
@@ -115,12 +122,27 @@ function argumentTable(args, { withDefault }) {
   return [...header, ...rows].join('\n');
 }
 
-function commandSection(command, level) {
+/**
+ * Discussion text is written for a terminal, where an indented example block is
+ * verbatim. Markdown would reflow those lines into one paragraph and collapse
+ * their alignment, so each indented block becomes a code fence instead.
+ */
+function discussionBlocks(discussion) {
+  return discussion.split(/\n{2,}/).flatMap((block) => {
+    const lines = block.split('\n');
+    if (!lines.every((line) => line.startsWith('  '))) return [block, ''];
+    return ['```text', ...lines.map((line) => line.slice(2)), '```', ''];
+  });
+}
+
+function commandSection(command, level, { isDefault = false } = {}) {
   const heading = '#'.repeat(level);
-  const lines = [`${heading} \`${fullName(command)}\``, ''];
+  // The default subcommand's name is optional, which readers need to see next to
+  // the heading rather than buried in the command's own discussion.
+  const lines = [`${heading} \`${fullName(command)}\`${isDefault ? ' *(default)*' : ''}`, ''];
 
   if (command.abstract) lines.push(command.abstract, '');
-  if (command.discussion) lines.push(command.discussion, '');
+  if (command.discussion) lines.push(...discussionBlocks(command.discussion));
 
   lines.push('```sh', synopsis(command), '```', '');
 
@@ -135,8 +157,8 @@ function commandSection(command, level) {
     lines.push(argumentTable(options, { withDefault: true }), '');
   }
 
-  for (const sub of (command.subcommands ?? []).filter((sub) => sub.shouldDisplay !== false)) {
-    lines.push(commandSection(sub, level + 1));
+  for (const sub of visibleSubcommands(command)) {
+    lines.push(commandSection(sub, level + 1, { isDefault: sub.commandName === command.defaultSubcommand }));
   }
 
   return lines.join('\n');

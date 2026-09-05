@@ -26,7 +26,15 @@ public enum PowerAssertionError: Error, Equatable, CustomStringConvertible {
 /// can be exercised in tests without changing the host machine's sleep state.
 public protocol PowerAsserting: AnyObject, Sendable {
     /// Acquire an assertion of the given `type`, tagged with a human-readable `reason`.
-    func acquire(_ type: PowerAssertionType, reason: String) throws -> PowerAssertionToken
+    ///
+    /// When `onBehalfOf` names a process, the assertion is attributed to it so
+    /// tools like `pmset -g assertions` report which process the machine is
+    /// being kept awake for, rather than pointing at guaranate itself.
+    func acquire(
+        _ type: PowerAssertionType,
+        reason: String,
+        onBehalfOf pid: pid_t?
+    ) throws -> PowerAssertionToken
     /// Release a previously-acquired assertion. Idempotent for unknown tokens.
     func release(_ token: PowerAssertionToken)
 }

@@ -1,3 +1,4 @@
+import Darwin
 import GuaranateCore
 
 /// In-memory `PowerAsserting` for tests. Tracks live tokens and call counts so
@@ -8,12 +9,18 @@ final class FakePowerAsserting: PowerAsserting, @unchecked Sendable {
     private(set) var releaseCount = 0
     private(set) var lastReason: String?
     private(set) var lastType: PowerAssertionType?
+    private(set) var lastOnBehalfOf: pid_t?
     private var nextRaw: UInt32 = 1
 
-    func acquire(_ type: PowerAssertionType, reason: String) throws -> PowerAssertionToken {
+    func acquire(
+        _ type: PowerAssertionType,
+        reason: String,
+        onBehalfOf pid: pid_t?
+    ) throws -> PowerAssertionToken {
         acquireCount += 1
         lastReason = reason
         lastType = type
+        lastOnBehalfOf = pid
         let token = PowerAssertionToken(rawValue: nextRaw)
         nextRaw += 1
         active.insert(token)

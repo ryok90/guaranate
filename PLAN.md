@@ -27,7 +27,7 @@ source of truth for *sequencing and status*.
 | ID | Milestone | Status | Depends on |
 | --- | --- | --- | --- |
 | M1 | v0.1 — Native CLI foundation | done | — |
-| M2 | v0.2 — Process lifecycle (`while`, `until`) | todo | M1 |
+| M2 | v0.2 — Process lifecycle (`while`, `until`) | in-progress | M1 |
 | M3 | v0.3 — Observability & machine output | todo | M2 |
 | M4 | v0.4 — External leases | todo | M3 |
 | M5 | v0.5 — Power modes, closed-lid, deeper observability | todo | M4 |
@@ -93,36 +93,90 @@ Refs: spec "Bootstrap target", "v0.1", "Recommended stack".
 
 ---
 
-## M2 — v0.2 Process lifecycle · `todo`
+## M2 — v0.2 Process lifecycle · `in-progress`
 
-Goal: make `guaranate while -- <cmd>` a signature, polished workflow; add `until` and `watch <pid>`.
-Refs: spec "Flagship workflow", "v0.2", "Process model" (in-process case).
+Goal: make `guaranate while <cmd>` a signature, polished workflow; add `until`
+and watching an already-running process.
+Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
+"v0.2", "Process model" (in-process case).
 
-- [ ] `M2-T1` `ChildProcess` abstraction in `GuaranateCore`.
+- [x] `M2-T1` `ChildProcess` abstraction in `GuaranateCore`.
   - Acceptance: launch a command with argv; observe exit; testable without a real long-running process.
-  - Refs: spec `Sources/.../Process/ChildProcess.swift`.
-- [ ] `M2-T2` `while` command: acquire → launch child → hold for child lifetime → release on exit.
-  - Acceptance: `guaranate while -- sleep 30` holds the assertion for exactly the child's lifetime.
-- [ ] `M2-T3` Signal forwarding to the child (SIGINT/SIGTERM/SIGHUP).
+  - Shipped as `ChildLaunching` (protocol) + `ChildProcess` (`posix_spawnp`), with
+    `CommandInvocation` and `ExitStatus` as pure, separately-testable pieces.
+    Foundation `Process` was rejected: it always sets `POSIX_SPAWN_SETPGROUP`, so
+    the child lands in its own process group where a terminal Ctrl+C never reaches
+    it, and it never exposes the raw wait status needed to tell `exit(9)` from
+    death by `SIGKILL`.
+  - Refs: `Sources/GuaranateCore/Process/*`.
+- [x] `M2-T2` `while` command: acquire → launch child → hold for child lifetime → release on exit.
+  - Acceptance: `guaranate while sleep 30` holds the assertion for exactly the child's lifetime.
+  - Note: `--` is now optional (`guaranate while sleep 30`), accepted, and
+    stripped when present.
+  - Refs: `Sources/GuaranateCLI/Commands/WhileCommand.swift`, `Sources/GuaranateCLI/ProcessSession.swift`.
+- [x] `M2-T3` Signal forwarding to the child (SIGINT/SIGTERM/SIGHUP).
   - Acceptance: Ctrl+C reaches the child; child is not orphaned; parent waits for child teardown.
-- [ ] `M2-T4` Child exit-code propagation.
-  - Acceptance: `guaranate while -- sh -c 'exit 7'` exits 7; signal-terminated child maps to 128+signal.
-- [ ] `M2-T5` Guaranteed assertion release on every `while` exit path.
+  - The child also needs its inherited dispositions reset: the parent sets these
+    signals to `SIG_IGN` so its dispatch sources are the sole handlers, and
+    `SIG_IGN` survives `exec` — without `POSIX_SPAWN_SETSIGDEF` the child would be
+    silently immune to Ctrl+C. Covered by a unit test.
+- [x] `M2-T4` Child exit-code propagation.
+  - Acceptance: `guaranate while sh -c 'exit 7'` exits 7; signal-terminated child maps to 128+signal.
+  - Also: command not found exits 127, command not executable exits 126.
+- [x] `M2-T5` Guaranteed assertion release on every `while` exit path.
   - Acceptance: normal exit, child crash, and Ctrl+C all leave no stale assertion.
-- [ ] `M2-T6` `while` live frame (Command, Elapsed, Remaining = "process lifetime", Assertion, Display) + completion summary.
-  - Acceptance: matches spec examples; degrades off-TTY.
-- [ ] `M2-T7` `--reason` on `while`.
-  - Acceptance: reason recorded on the assertion.
+  - Refs: `scripts/smoke.sh` tests 3–5.
+- [x] `M2-T6` `while` session output + completion summary.
+  - Amended: the original acceptance called for a live redrawn frame (Command,
+    Elapsed, Remaining = "process lifetime", …). That is unachievable without
+    corrupting the terminal, because the command owns stdout — and a command using
+    its own alt-screen or progress bar would fight the frame unfixably. `while`
+    therefore passes the terminal through and bookends it with one start line and
+    a completion summary. The live frame is kept for watch sessions, where nothing
+    else writes to the terminal.
+  - Acceptance: the command's output is untouched; the summary names the command,
+    its outcome, and the elapsed time; degrades off-TTY.
+- [x] `M2-T7` `--reason` on `while`.
+  - Acceptance: reason recorded on the assertion; defaults to `while: <command>`
+    when omitted.
 - [ ] `M2-T8` `until <HH:MM>` command.
   - Acceptance: computes duration to next occurrence of local time; passed-time behavior documented AND tested.
   - Refs: spec "Run until a clock time".
-- [ ] `M2-T9` Tests: child monitoring, signal forwarding, exit-code propagation, `until` calculation.
-- [ ] `M2-T10` `watch <pid>` command — hold the assertion until an already-running process exits.
-  - Acceptance: `guaranate watch <pid>` acquires on start and releases exactly when the PID exits (kqueue `NOTE_EXIT`, not polling); unknown/already-dead PID exits cleanly without acquiring; Ctrl+C releases and detaches without killing the watched process; no stale assertion on any exit path. Reuses the M2-T5 release machinery; accepts `--reason`. Covers the caffeinate `-w <pid>` gap (guaranate otherwise only guards processes it launches).
+- [~] `M2-T9` Tests: child monitoring, signal forwarding, exit-code propagation, `until` calculation.
+  - Shipped: exit-status decoding, argv normalization, `PATH` resolution, 127/126
+    launch failures, inherited-`SIG_IGN` reset, process-group inheritance, process
+    identity and pid-reuse detection, plus `scripts/smoke.sh` tests 3–8 against the
+    real binary. Remaining: `until` calculation (blocked on `M2-T8`).
+- [x] `M2-T10` Hold the assertion until an already-running process exits.
+  - Shipped as an option, `guaranate -w <pid>` / `--watch <pid>`, not the
+    `watch <pid>` subcommand this task originally specified. #17 had rejected
+    `-w`-style parity; the reconciliation is that the capability is named
+    `--watch` (understandable terminology, per the spec's own preference over
+    one-letter compatibility flags) and `AGENTS.md`'s mandatory short-alias rule
+    independently makes its short `-w`. `caffeinate -w 1234` therefore ports
+    directly without adopting compatibility as a goal.
+  - Acceptance: acquires on start and releases exactly when the pid exits
+    (`DispatchSourceProcess`/kqueue `NOTE_EXIT`, not polling); an unused pid is
+    rejected without acquiring; Ctrl+C releases and detaches without killing the
+    watched process; no stale assertion on any exit path; accepts `--reason`.
+  - Beyond the original acceptance: plain `NOTE_EXIT` is requested and never
+    `NOTE_EXITSTATUS`, because the kernel only enforces credentials when both are
+    set — so processes owned by other users can be watched. A `kill(pid, 0)`
+    pre-check is mandatory, not polish: libdispatch synthesizes a fake exit event
+    when registration fails with `ESRCH`, so an unused pid would otherwise report
+    "exited" and exit 0. Sessions bind to the `(pid, start-time)` pair so a
+    recycled pid cannot inherit the assertion, and the assertion carries
+    `kIOPMAssertionOnBehalfOfPID` so `pmset` names the watched process.
+  - Refs: `Sources/GuaranateCore/Process/ProcessIdentity.swift`,
+    `Sources/GuaranateCLI/TimedSession.swift`, #33.
 
-Design note: the bare-duration root command and subcommands must coexist —
-resolve the argument-parser routing so `guaranate 10m` and `guaranate while …`
-both work.
+Design note: the bare-duration root command and subcommands now coexist via a
+`run` default subcommand. A root command that owns a positional argument cannot
+gain subcommands — `parsePositionalValues` runs before subcommand dispatch and has
+no subcommand awareness, so the positional silently swallows the subcommand name
+and makes it unreachable, with no compile-time or runtime diagnostic. The root is
+therefore a pure container, and `-v`/`--version` moved onto `run` because a root
+with a default subcommand never runs its own `run()`.
 
 ---
 

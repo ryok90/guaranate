@@ -24,9 +24,9 @@ The name is a play on **guaraná**, the Brazilian stimulant, and Apple's
 
 ## Status
 
-**v0.1 — native CLI foundation.** Timed sessions work end-to-end. The broader
-surface (`while`, `until`, `status`, `why`, external leases) is planned and
-tracked in [`PLAN.md`](PLAN.md).
+**v0.1 — native CLI foundation.** Timed sessions and process-lifetime sessions
+work end-to-end. The broader surface (`until`, `status`, `why`, external leases)
+is planned and tracked in [`PLAN.md`](PLAN.md).
 
 | Feature | State |
 | --- | --- |
@@ -36,7 +36,8 @@ tracked in [`PLAN.md`](PLAN.md).
 | Elapsed / remaining / end-time display | ✅ shipped |
 | Ctrl+C / SIGTERM cleanup, no stale assertion | ✅ shipped |
 | Non-TTY-friendly output | ✅ shipped |
-| `guaranate while -- <cmd>` | 🔜 v0.2 |
+| `guaranate while <cmd>` for a command's lifetime | ✅ shipped |
+| `guaranate --watch <pid>` for a running process | ✅ shipped |
 | `guaranate until <HH:MM>` | 🔜 v0.2 |
 | `status` / `why` / `--json` | 🔜 v0.3 |
 | `acquire` / `renew` / `release` leases | 🔜 v0.4 |
@@ -140,6 +141,39 @@ Press **`q`** or **Ctrl+C** to end a live session; it is also released
 automatically when the duration elapses or on `SIGTERM` — never leaving a stale
 sleep inhibitor behind.
 
+### Command and process lifetimes
+
+Hold the assertion for exactly as long as a command runs:
+
+```bash
+guaranate while npm test
+guaranate while ./build.sh --release
+guaranate while --display -- ./deploy.sh   # flags go before the command
+```
+
+The command inherits the terminal — its output passes straight through, so
+there is no live frame, just a start line and a completion summary — and
+Guaranate exits with the command's own exit code (`128 + signal` if it is
+killed by one, `127` if the command is not found, `126` if it is not
+executable). Ctrl+C, `SIGTERM`, and `SIGHUP` are forwarded to the command, and
+the assertion is released only once it has exited, so the command is never
+orphaned and no stale assertion is left behind.
+
+Hold the assertion until an already-running process exits:
+
+```bash
+guaranate --watch 4821
+guaranate -w 4821
+```
+
+Watching only observes: the process is never started, signaled, or killed, and
+Ctrl+C detaches and leaves it running. It works for processes owned by other
+users, is bound to the process's (pid, start time) pair so a recycled pid can
+never inherit the assertion, and attributes the assertion to the watched
+process — `pmset -g assertions` reports `Created for PID: 4821`. An unused pid
+is rejected before anything is acquired, and `--watch` cannot be combined with
+a duration.
+
 ### Assertion modes
 
 The default prevents **user-idle system sleep** while still letting the display
@@ -158,6 +192,7 @@ guaranate 2h --system     # prevent all system sleep
 | `-d`, `--display` | Also keep the display awake. |
 | `-s`, `--system` | Prevent all system sleep. |
 | `-r`, `--reason <text>` | Reason recorded on the power assertion. |
+| `-w`, `--watch <pid>` | Hold the assertion until that process exits. |
 | `-v`, `--version` | Print the version. |
 | `-h`, `--help` | Show help. |
 
@@ -197,12 +232,16 @@ menu-bar companion would depend on `GuaranateCore`, not the CLI executable.
 ```text
 Sources/
 ├── GuaranateCLI/            # commands, terminal rendering, process runtime
-│   ├── Guaranate.swift      # @main root command
-│   ├── TimedSession.swift   # acquire → render loop → guaranteed release
+│   ├── Guaranate.swift      # @main root command, subcommand container
+│   ├── TimedSession.swift   # timed / --watch session: render loop, release
+│   ├── ProcessSession.swift # while: spawn, forward signals, propagate exit
+│   ├── Commands/            # AssertionOptions, RunCommand, WhileCommand
 │   └── Output/
 │       └── TerminalRenderer.swift
 └── GuaranateCore/           # pure, IOKit-free logic (unit-tested)
     ├── Power/               # PowerAsserting protocol + IOKit PowerManager
+    ├── Process/             # ChildProcess, CommandInvocation, ExitStatus,
+    │                        # ProcessIdentity
     ├── Time/                # DurationParser, Deadline, TimeFormatting
     └── Terminal/            # ProgressBar (pure bar math for the live frame)
 ```

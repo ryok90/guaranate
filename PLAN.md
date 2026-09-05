@@ -240,11 +240,12 @@ no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
   - Acceptance: no page advertises an unshipped command; planned surface is
     confined to the roadmap page and marked as planned; `GUARANATE.md`, `PLAN.md`,
     and `AGENTS.md` stay root-internal and are not duplicated into `docs-website/`.
-- [ ] `DOCS-T6` Canonical domain and Zephyr environment wiring.
-  - Acceptance: a production domain is attached via Zephyr Tags & Environments,
-    `DOCS_SITE_URL` is set for `main` builds (enabling canonical URLs and the
-    sitemap), and `README.md` links the live site.
-  - Refs: https://docs.zephyr-cloud.io/features/tags-environments.
+- [x] `DOCS-T6` Canonical domain and Zephyr environment wiring.
+  - Acceptance: the production domain https://guaranate.dev is attached via
+    Zephyr Tags & Environments, the Astro config defaults `site` to it (enabling
+    canonical URLs and the sitemap, with `DOCS_SITE_URL` still overriding), and
+    `README.md` links the live site.
+  - Refs: `docs-website/astro.config.mjs`, https://docs.zephyr-cloud.io/features/tags-environments.
 - [-] `DOCS-T7` Docs versioning. Deferred: pre-1.0 there is only one version to
   document.
 - [x] `DOCS-T8` Mascot branding across the site and `README.md`.
@@ -271,6 +272,18 @@ no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
     `README.md`, `AGENTS.md` — points at the new location, and `npm run build`
     plus `npm run gen:cli:check` still pass from `docs-website/`.
   - Refs: `docs/agents/`, `.github/workflows/docs.yml`, `.github/workflows/ci.yml`.
+
+- [ ] `DOCS-T11` Docs deployment rides along with the release.
+  - Acceptance: a `v*` release deploys the docs built from that exact tag to the
+    production Zephyr environment after the binary is published; a failed release
+    does not deploy docs; the Zephyr token/env logic lives in one reusable
+    workflow shared by `docs.yml` and `release.yml`.
+  - Refs: #31, `.github/workflows/release.yml`, `.github/workflows/docs.yml`.
+- [ ] `DOCS-T12` Dispatchable docs-only deployment.
+  - Acceptance: `workflow_dispatch` takes a `ref` (branch or tag, default `main`)
+    and an explicit production-or-preview target, and deploys only the docs — no
+    tag, no release; fork PRs still build-verify without a token.
+  - Refs: #31, `.github/workflows/docs.yml`.
 
 ---
 

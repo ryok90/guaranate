@@ -133,13 +133,16 @@ card is printed when the session completes.
 Color and Unicode degrade independently, so the frame stays readable everywhere:
 
 - `NO_COLOR` drops color but keeps the Unicode bar.
-- A `dumb` or non-UTF-8 terminal falls back to a plain ASCII bar (`[####----]`)
-  with no escape codes at all.
+- A non-UTF-8 locale falls back to a plain ASCII bar (`[####----]`) and keeps
+  color; `TERM=dumb` (or no `TERM`) drops color as well.
+
+Cursor hiding and frame redraws are the one thing tied to the terminal rather
+than to color: those escape sequences are written whenever stdout is a TTY.
 
 ### Scripts, pipes, and CI
 
-When stdout is not a TTY, the frame collapses to a single start line and a single
-completion line — no per-second redraw churn in your log file:
+When stdout is not a TTY, the frame collapses to one start line and a two-line
+completion summary — no per-second redraw churn in your log file:
 
 ```bash
 guaranate 2h --reason "release build" >> keepawake.log 2>&1 &

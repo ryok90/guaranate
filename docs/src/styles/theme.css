@@ -119,16 +119,21 @@ header .site-title img {
   padding-inline: 0;
 }
 
-/* The primary call to action is berry red in both themes, not a pastel tint. */
-.action.primary {
+/* The primary call to action is berry red in both themes, not a pastel tint.
+   Starlight 0.42 renders hero actions as `.sl-link-button.primary`, whose default
+   background is `--sl-color-text-accent` (the pale `accent-high` ramp in dark
+   mode). Text is literal white because `--sl-color-white` is near-black under
+   `[data-theme='light']`, which would leave dark text on berry red. */
+.sl-link-button.primary {
   background: var(--sl-color-accent);
-  color: var(--sl-color-white);
-  border-color: transparent;
+  border-color: var(--sl-color-accent);
+  color: hsl(0, 0%, 100%);
 }
 
-.action.primary:hover {
+.sl-link-button.primary:hover {
   background: color-mix(in oklab, var(--sl-color-accent) 85%, black);
-  color: var(--sl-color-white);
+  border-color: color-mix(in oklab, var(--sl-color-accent) 85%, black);
+  color: hsl(0, 0%, 100%);
 }
 
 /* Card accents follow the mascot — leaf green, berry red, guaraná amber — instead

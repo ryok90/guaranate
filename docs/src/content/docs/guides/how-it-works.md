@@ -34,9 +34,15 @@ permanently awake: the kernel drops assertions held by a dead process.
 the background and look for your `--reason` text:
 
 ```bash
-guaranate 60 --reason "check-assertion" &
+guaranate 60 --reason "check-assertion" >/dev/null &
 pmset -g assertions | grep check-assertion
 ```
+
+Redirecting stdout matters: with the live frame writing to your terminal, an
+interactive shell suspends the backgrounded process the moment it configures the
+keyboard (`SIGTTOU`), leaving it stopped while it still holds the assertion.
+Sending output elsewhere skips the frame entirely, which is also what you want in
+a script.
 
 While the session is live you'll see the assertion attributed to the `guaranate`
 process. After it ends, the same `grep` returns nothing:

@@ -40,8 +40,9 @@ macOS, so a CLI change that forgets to regenerate the page fails there.
 
 `src/assets/brand/source-sheet.png` is the original branding sheet: six mascot
 variants in a 3x2 grid on a black background. Everything else is cut from it by
-`scripts/gen-brand-assets.sh` (ImageMagick + pngquant), which flood-fills the
-black background to transparency, trims, and quantizes:
+`scripts/gen-brand-assets.sh` (ImageMagick + pngquant), which paints out the few
+stray specks the sheet leaves outside a mascot's outline, flood-fills the black
+background to transparency, trims, and quantizes:
 
 | Asset | Variant | Used by |
 | --- | --- | --- |

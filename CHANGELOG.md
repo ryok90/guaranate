@@ -34,6 +34,11 @@ dated, versioned section.
   Honors `NO_COLOR` and falls back to plain ASCII (no color, `[####----]` bar)
   on `dumb` or non-UTF-8 terminals; non-TTY output is unchanged (#21).
 
+### Fixed
+
+- The mascot artwork in `README.md` and the docs site header no longer shows
+  stray red specks outside the berry's outline.
+
 ## [0.1.0] - 2026-08-29
 
 ### Added

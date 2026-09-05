@@ -3,8 +3,9 @@
 # Regenerates the brand assets from the branding sample sheet.
 #
 # The sheet (`src/assets/brand/source-sheet.png`) is a 3x2 grid of mascot
-# variants on a black background. Each variant is cropped out, the connected
-# black background is flood-filled to transparency, and the result is trimmed and
+# variants on a black background. Each variant is cropped out, stray paint specks
+# outside its outline are painted over with the background, the connected black
+# background is flood-filled to transparency, and the result is trimmed and
 # quantized. Fuzz is per-variant: the round badge and die-cut sticker were drawn
 # with a drop shadow, so they need a wide fuzz for the shadow to go with the
 # background, while the terminal-window variant needs a narrow one — its window
@@ -24,24 +25,37 @@ cd "$docs_dir"
 sheet="src/assets/brand/source-sheet.png"
 [[ -f "$sheet" ]] || { echo "missing $sheet" >&2; exit 1; }
 
+# The plain mascot has three paint specks just outside the berry's outline, down
+# its left side: nubs the renderer left behind, the lower two bright red. The
+# flood fill cannot take them — they are red, not background — so they are painted
+# over with the background first, in sheet coordinates, in bands that follow the
+# outline so the berry keeps its dark rim.
+mascot_specks='rectangle 70,396 92,398 '
+mascot_specks+='rectangle 70,420 99,423 rectangle 70,424 101,427 rectangle 70,428 102,428 '
+mascot_specks+='rectangle 70,433 106,434 rectangle 70,435 107,438 rectangle 70,439 108,439'
+
 # Starlight renders a hero image at a fixed 400x400, and Astro crops to fill when
 # both dimensions are given — so any variant used as a hero is padded to a square
 # canvas (plus a little breathing room) instead of losing its top and bottom edges.
 #
-# name|output|crop WxH+X+Y|fuzz|square
+# name|output|crop WxH+X+Y|fuzz|square|specks painted out before the fill
 variants=(
-  "mascot|src/assets/brand/mascot.png|407x496+70+42|5|no"
-  "terminal|src/assets/brand/terminal.png|449x445+1017+538|2|yes"
-  "sticker|src/assets/brand/sticker.png|449x496+1017+42|15|yes"
-  "wink|public/brand/wink.png|407x445+70+538|5|no"
-  "happy|public/brand/happy.png|473x445+540+538|5|no"
-  "badge|public/brand/badge.png|473x496+540+42|15|no"
+  "mascot|src/assets/brand/mascot.png|407x496+70+42|5|no|$mascot_specks"
+  "terminal|src/assets/brand/terminal.png|449x445+1017+538|2|yes|"
+  "sticker|src/assets/brand/sticker.png|449x496+1017+42|15|yes|"
+  "wink|public/brand/wink.png|407x445+70+538|5|no|"
+  "happy|public/brand/happy.png|473x445+540+538|5|no|"
+  "badge|public/brand/badge.png|473x496+540+42|15|no|"
 )
 
 for variant in "${variants[@]}"; do
-  IFS='|' read -r name out crop fuzz square <<< "$variant"
+  IFS='|' read -r name out crop fuzz square specks <<< "$variant"
   mkdir -p "$(dirname "$out")"
-  magick "$sheet" -crop "$crop" +repage \
+  patch=()
+  if [[ -n "$specks" ]]; then
+    patch=(+antialias -fill black -draw "$specks")
+  fi
+  magick "$sheet" ${patch[@]+"${patch[@]}"} -crop "$crop" +repage \
     -alpha set -fuzz "${fuzz}%" -fill none -floodfill +0+0 black \
     -trim +repage "$out"
   if [[ "$square" == yes ]]; then

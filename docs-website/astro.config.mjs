@@ -27,7 +27,7 @@ export default defineConfig({
       logo: { src: './src/assets/brand/mascot.png', alt: 'The Guaranate guaraná berry mascot' },
       favicon: '/favicon.png',
       social: [{ icon: 'github', label: 'GitHub', href: repo }],
-      editLink: { baseUrl: `${repo}/edit/main/docs/` },
+      editLink: { baseUrl: `${repo}/edit/main/docs-website/` },
       lastUpdated: true,
       customCss: [
         '@fontsource-variable/space-grotesk',

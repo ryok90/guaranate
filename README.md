@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/src/assets/brand/mascot.png" alt="The Guaranate guaraná berry mascot" width="180">
+<img src="docs-website/src/assets/brand/mascot.png" alt="The Guaranate guaraná berry mascot" width="180">
 
 # Guaranate
 
@@ -45,17 +45,17 @@ tracked in [`PLAN.md`](PLAN.md).
 
 ## Documentation
 
-<img src="docs/src/assets/brand/terminal.png" alt="The Guaranate mascot inside a terminal window" width="200" align="right">
+<img src="docs-website/src/assets/brand/terminal.png" alt="The Guaranate mascot inside a terminal window" width="200" align="right">
 
 This README is the quickstart. The full user guide — install, session options,
 assertion modes, terminal output, and a CLI reference generated from the binary's
-own help output — lives in [`docs/`](docs/), a self-contained
+own help output — lives in [`docs-website/`](docs-website/), a self-contained
 [Astro Starlight](https://starlight.astro.build/) site deployed with
 [Zephyr Cloud](https://docs.zephyr-cloud.io). Every build gets its own immutable
 preview URL; a canonical domain will be linked here once it is wired up.
 
 ```bash
-cd docs && npm install && npm run dev
+cd docs-website && npm install && npm run dev
 ```
 
 ---

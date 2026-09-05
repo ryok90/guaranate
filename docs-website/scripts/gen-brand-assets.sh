@@ -15,7 +15,7 @@
 # Requires ImageMagick and pngquant. Only needed when the sheet or a crop
 # changes — the generated PNGs are committed.
 #
-# Usage: docs/scripts/gen-brand-assets.sh
+# Usage: docs-website/scripts/gen-brand-assets.sh
 
 set -euo pipefail
 

@@ -174,7 +174,7 @@ if (check) {
   }
   process.stderr.write(
     `::error::${relative(repoRoot, outputPath)} is stale for guaranate ${version}. ` +
-      'Run `npm run gen:cli` in docs/ and commit the result.\n'
+      'Run `npm run gen:cli` in docs-website/ and commit the result.\n'
   );
   process.exit(1);
 }

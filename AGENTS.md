@@ -18,10 +18,30 @@ around `/usr/bin/caffeinate`.
   work lands. Task IDs (e.g. `M2-T3`) are stable — append, never renumber.
 - [`README.md`](README.md) — user-facing docs. Keep the feature table honest:
   never advertise a command that isn't shipped.
+- [`docs/`](docs/) — contributor- and agent-facing documentation: `docs/agents/`
+  (agent-skill configuration, see below) and `docs/adr/` (architecture decision
+  records). Not published anywhere.
+- [`docs-website/`](docs-website/) — the **published** user guide: a
+  self-contained Astro Starlight package. User-facing guide content goes here;
+  agent and domain docs never do.
 
 Before starting work, read the relevant `PLAN.md` milestone and the spec
 sections it references (`Refs:` lines). Verify a task's `Acceptance` criteria —
 do not assume them.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues in `ryok90/guaranate`, driven with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, each label named after its role: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and one `docs/adr/` at the repository root. See `docs/agents/domain.md`.
 
 ## Commands
 
@@ -30,6 +50,16 @@ swift build                 # debug build
 swift build -c release      # release build
 swift test                  # run the unit test suite (XCTest)
 swift run guaranate 10m     # run the CLI
+```
+
+The documentation site is a separate Node package:
+
+```bash
+cd docs-website
+npm install                 # once
+npm run dev                 # local dev server
+npm run build               # static build (deploys through Zephyr with a token)
+npm run gen:cli             # regenerate the CLI reference from the binary
 ```
 
 There is **no** configured linter or formatter. Match the style of the

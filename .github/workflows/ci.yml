@@ -12,7 +12,7 @@ on:
       # The docs site is a self-contained Node package; `swift build` and
       # `swift test` do not know it exists. The generated CLI reference it ships
       # is verified below, in the job that can actually build the binary.
-      - "docs/**"
+      - "docs-website/**"
       - .github/dependabot.yml
       - .github/FUNDING.yml
       - .github/CODEOWNERS
@@ -65,7 +65,7 @@ jobs:
       - name: Verify the generated CLI reference is current
         env:
           GUARANATE_BIN: .build/release/guaranate
-        run: node docs/scripts/gen-cli-reference.mjs --check
+        run: node docs-website/scripts/gen-cli-reference.mjs --check
 
       - name: Test
         run: swift test

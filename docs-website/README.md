@@ -1,6 +1,7 @@
 # Guaranate docs site
 
-The user-facing documentation site for Guaranate: [Astro Starlight](https://starlight.astro.build/),
+The user-facing documentation site for Guaranate, published at
+[guaranate.dev](https://guaranate.dev): [Astro Starlight](https://starlight.astro.build/),
 deployed with [Zephyr Cloud](https://docs.zephyr-cloud.io).
 
 This directory is self-contained — it holds the only `package.json` in the
@@ -104,9 +105,11 @@ a git repository must be initialized (CI checkouts satisfy this). Consequences:
   with no credentials the plugin blocks on an interactive auth flow until it times
   out — five minutes for a build that takes two seconds.
 
-`.github/workflows/docs.yml` deploys pushes to `main` and internal pull requests,
-and build-verifies pull requests from forks — which cannot read repository
-secrets, and so intentionally run without a token and without deploying.
+`.github/workflows/docs.yml` deploys pushes to `main` — which Zephyr serves from
+the production domain, https://guaranate.dev — and internal pull requests, which
+get their own immutable preview URL. It build-verifies pull requests from forks,
+which cannot read repository secrets, and so intentionally run without a token
+and without deploying.
 
 Building locally deploys if you are logged in to Zephyr. `astro preview` loads the
 integration too, so with an expired session it stops and waits for a browser

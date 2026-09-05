@@ -12,11 +12,11 @@ const repo = 'https://github.com/ryok90/guaranate';
 const deploy = process.env.SKIP_ZEPHYR !== 'true';
 
 export default defineConfig({
-  // Set DOCS_SITE_URL once a canonical domain is wired up in Zephyr (Tags &
-  // Environments). Until then every build is served from its own immutable
-  // Zephyr version URL, and canonical URLs / sitemap stay off rather than
-  // pointing at a domain that does not exist yet.
-  site: process.env.DOCS_SITE_URL,
+  // Canonical site URL: the production domain attached in Zephyr (Tags &
+  // Environments), which enables canonical URLs and the sitemap. `DOCS_SITE_URL`
+  // overrides it; preview builds keep pointing canonical URLs at production
+  // rather than at their own immutable Zephyr version URL.
+  site: process.env.DOCS_SITE_URL ?? 'https://guaranate.dev',
   // Required: the Zephyr integration supports Astro's SSG mode only.
   output: 'static',
   integrations: [

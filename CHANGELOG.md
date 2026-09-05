@@ -21,6 +21,7 @@ dated, versioned section.
 - Short aliases for every option: `-d`/`--display`, `-s`/`--system`, and
   `-r`/`--reason` (#7).
 - Press `q` (or Ctrl+C) to end a live session from the keyboard (#21).
+- The user guide is published at <https://guaranate.dev>.
 
 ### Changed
 

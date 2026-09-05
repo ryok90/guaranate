@@ -14,8 +14,39 @@ A developer-friendly macOS keep-awake CLI.
 
 Keep your Mac awake when work needs to finish. Give your Mac some guaraná.
 
+```text
+guaranate 2h                  stay awake for two hours
+guaranate                     stay awake until interrupted
+guaranate --watch 4821        stay awake until pid 4821 exits
+guaranate while npm test      stay awake for exactly one command
+```
+
+The timed form is the default command: see `guaranate run --help` for its full options, and `guaranate while --help` for the command form.
+
 ```sh
-guaranate [<duration>] [--display] [--system] [--reason <reason>] [--version] [--help] [<subcommand>]
+guaranate [--help] [<subcommand>]
+```
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-h`, `--help` | Show help information. | — |
+
+### `guaranate run` *(default)*
+
+Stay awake for a duration, until interrupted, or until a process exits.
+
+This is the default command, so its name is optional: `guaranate 2h` and `guaranate run 2h` do the same thing.
+
+```text
+guaranate 2h              stay awake for two hours
+guaranate                 stay awake until interrupted
+guaranate --watch 4821    stay awake until pid 4821 exits
+```
+
+A watched process is not started, stopped, or otherwise touched by guaranate — only observed. Ctrl+C detaches and leaves it running. Processes belonging to another user can be watched too.
+
+```sh
+guaranate run [<duration>] [--watch <pid>] [--display] [--system] [--reason <text>] [--version] [--help]
 ```
 
 | Argument | Description |
@@ -24,20 +55,37 @@ guaranate [<duration>] [--display] [--system] [--reason <reason>] [--version] [-
 
 | Option | Description | Default |
 | --- | --- | --- |
+| `-w`, `--watch <pid>` | Stay awake until the process with this pid exits. | — |
 | `-d`, `--display` | Also keep the display awake (default lets the display sleep). | — |
 | `-s`, `--system` | Prevent all system sleep. | — |
-| `-r`, `--reason <reason>` | Reason recorded on the power assertion. | `Guaranate timed session` |
+| `-r`, `--reason <text>` | Reason recorded on the power assertion. | — |
 | `-v`, `--version` | Show the version. | — |
 | `-h`, `--help` | Show help information. | — |
 
-### `guaranate help`
+### `guaranate while`
 
-Show subcommand help information.
+Stay awake for exactly as long as a command runs.
+
+The command keeps this terminal: its output and input pass straight through, and guaranate exits with the command's own exit code — or 128 + signal number if it is killed by a signal.
+
+Guaranate's own flags belong before the command. Everything from the first non-flag token onwards is handed to the command untouched, so use `--` when the command's first argument could be mistaken for one of ours:
+
+```text
+guaranate while npm test
+guaranate while --display -- ./build.sh --release
+```
 
 ```sh
-guaranate help [<subcommands> ...]
+guaranate while <command> ... [--display] [--system] [--reason <text>] [--help]
 ```
 
 | Argument | Description |
 | --- | --- |
-| `<subcommands>` *(optional)* | — |
+| `<command>` | The command to run, with its arguments. |
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-d`, `--display` | Also keep the display awake (default lets the display sleep). | — |
+| `-s`, `--system` | Prevent all system sleep. | — |
+| `-r`, `--reason <text>` | Reason recorded on the power assertion. | — |
+| `-h`, `--help` | Show help information. | — |

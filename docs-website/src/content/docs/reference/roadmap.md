@@ -12,7 +12,7 @@ Sequencing, task IDs, and acceptance criteria live in
 intent lives in
 [`GUARANATE.md`](https://github.com/ryok90/guaranate/blob/main/GUARANATE.md).
 
-## Shipped — v0.1
+## Shipped
 
 | Feature | Documented in |
 | --- | --- |
@@ -24,6 +24,8 @@ intent lives in
 | Live progress frame, with `q` to quit | [The live frame](/guides/timed-sessions/#the-live-frame) |
 | Guaranteed release on expiry, `q`, `SIGINT`, `SIGTERM` | [Ending a session](/guides/timed-sessions/#ending-a-session) |
 | Non-TTY-friendly output | [Scripts, pipes, and CI](/guides/timed-sessions/#scripts-pipes-and-ci) |
+| `guaranate while <cmd>` | [Wrapping a command](/guides/process-sessions/#wrapping-a-command) |
+| `guaranate --watch <pid>` | [Watching a process that already runs](/guides/process-sessions/#watching-a-process-that-already-runs) |
 
 ## Planned
 
@@ -32,9 +34,7 @@ reach for today.
 
 | Planned | Target | What it will do |
 | --- | --- | --- |
-| `guaranate while -- <cmd>` | v0.2 | Hold the assertion for exactly a child command's lifetime, forwarding signals and propagating its exit code. |
 | `guaranate until <HH:MM>` | v0.2 | Stay awake until the next occurrence of a clock time. |
-| `guaranate watch <pid>` | v0.2 | Hold the assertion until an already-running process exits. |
 | `status` / `why` | v0.3 | Explain what is keeping the Mac awake, and since when. |
 | `--json` output contract | v0.3 | Stable machine-readable output for scripts. |
 | `acquire` / `renew` / `release` | v0.4 | TTL-based leases for external tools, released automatically if a caller stops renewing. |

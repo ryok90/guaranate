@@ -22,6 +22,22 @@ dated, versioned section.
   `-r`/`--reason` (#7).
 - Press `q` (or Ctrl+C) to end a live session from the keyboard (#21).
 - The user guide is published at <https://guaranate.dev>.
+- `guaranate while <command>` holds the assertion for exactly the lifetime of
+  a command: it launches the command, passes its output straight through, and
+  exits with the command's own exit code (`128 + signal` when the command is
+  killed by one, `127` when it is not found, `126` when it is not executable).
+  Ctrl+C, `SIGTERM`, and `SIGHUP` are forwarded to the command and the
+  assertion is released only once it has exited, so the command is never
+  orphaned and no stale assertion is left behind. Guaranate's own flags go
+  before the command, separated by an optional `--` (#33).
+- `guaranate --watch <pid>` / `-w` holds the assertion until an already-running
+  process exits, closing the `caffeinate -w` gap. It only observes: the watched
+  process is never started, signaled, or killed, and Ctrl+C detaches and leaves
+  it running. It works for processes owned by other users, is bound to the
+  process's (pid, start time) pair so a recycled pid cannot inherit the
+  assertion, attributes the assertion to the watched process (so
+  `pmset -g assertions` reports `Created for PID: <pid>`), and rejects an
+  unused pid before acquiring anything (#33).
 
 ### Changed
 
@@ -34,6 +50,15 @@ dated, versioned section.
   truecolor or 256-color when available and degrades to solid green otherwise.
   Honors `NO_COLOR` and falls back to plain ASCII (no color, `[####----]` bar)
   on `dumb` or non-UTF-8 terminals; non-TTY output is unchanged (#21).
+- The timed surface now lives in a `run` default subcommand, so subcommand names
+  are no longer swallowed by the duration argument. Every existing invocation is
+  unchanged — `guaranate 10m`, bare `guaranate`, `guaranate -d -r "text" 2h`,
+  `guaranate -v`, and `guaranate --version` all behave exactly as before — and
+  `guaranate run 10m` is now an equivalent explicit spelling. Root
+  `guaranate --help` lists the subcommands (`run (default)` and `while`), with
+  the duration argument and `-d`/`-s`/`-r`/`-v` documented under
+  `guaranate run --help`; when a subcommand is used, Guaranate's flags follow
+  the subcommand name (#33).
 
 ### Fixed
 

@@ -40,6 +40,7 @@ export default defineConfig({
           items: [
             { slug: 'guides/install' },
             { slug: 'guides/timed-sessions' },
+            { slug: 'guides/process-sessions' },
             { slug: 'guides/how-it-works' },
           ],
         },

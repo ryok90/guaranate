@@ -30,7 +30,7 @@ export default defineConfig({
       editLink: { baseUrl: `${repo}/edit/main/docs/` },
       lastUpdated: true,
       customCss: [
-        '@fontsource-variable/figtree',
+        '@fontsource-variable/space-grotesk',
         '@fontsource-variable/jetbrains-mono',
         './src/styles/theme.css',
       ],

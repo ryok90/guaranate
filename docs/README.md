@@ -74,11 +74,14 @@ which otherwise shaves the top and bottom off a non-square asset.
   the mascot's berry red (`#d31a0e`), which preserves Starlight's contrast steps.
   Aside and card accents are remapped to leaf green, guaraná amber, and berry red
   instead of Starlight's blue/purple rotation.
-- **Type.** [Figtree](https://fontsource.org/fonts/figtree) for UI and prose,
-  [JetBrains Mono](https://fontsource.org/fonts/jetbrains-mono) for code, both
-  self-hosted via Fontsource — no requests to a font CDN.
+- **Type.** [Space Grotesk](https://fontsource.org/fonts/space-grotesk) for UI and
+  prose, [JetBrains Mono](https://fontsource.org/fonts/jetbrains-mono) for code,
+  both self-hosted via Fontsource — no requests to a font CDN. Swapping the UI face
+  means changing one Fontsource package in `astro.config.mjs` and `--sl-font` in
+  `src/styles/theme.css`.
 - **Details.** Tighter heading tracking, a leaf-green rule under `h2` section
-  headings, a berry glow behind hero art, and a berry-red primary call to action.
+  headings, hero art at 80% of Starlight's default size with a berry glow behind it,
+  and a berry-red primary call to action.
 
 ## Deployment
 

@@ -33,7 +33,7 @@
   --guaranate-leaf: hsl(84, 55%, 55%);
   --guaranate-amber: hsl(38, 82%, 60%);
   --guaranate-glow: hsla(5, 80%, 45%, 0.28);
-  --sl-font: 'Figtree Variable', var(--sl-font-system);
+  --sl-font: 'Space Grotesk Variable', var(--sl-font-system);
   --sl-font-mono: 'JetBrains Mono Variable', var(--sl-font-system-mono);
 }
 
@@ -79,10 +79,20 @@ header .site-title img {
   width: auto;
 }
 
-/* A berry glow behind the hero art, so the mascot is not floating on flat colour. */
+/* Hero art: a berry glow so the mascot is not floating on flat colour, and 20%
+   smaller than Starlight's default (`min(70%, 20rem)` / `min(100%, 25rem)`) so it
+   sits alongside the title instead of dominating it. */
 .hero > img,
-.hero .hero-html {
-  filter: drop-shadow(0 0 3.5rem var(--guaranate-glow));
+.hero > .hero-html {
+  width: min(56%, 16rem);
+  filter: drop-shadow(0 0 3rem var(--guaranate-glow));
+}
+
+@media (min-width: 50rem) {
+  .hero > img,
+  .hero > .hero-html {
+    width: min(80%, 20rem);
+  }
 }
 
 /* Leaf-green rule under section headings, the same green as the mascot's leaf.

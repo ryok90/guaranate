@@ -7,6 +7,9 @@ This directory is self-contained — it holds the only `package.json` in the
 repository. The Swift package at the repository root does not know it exists, and
 `swift build` / `swift test` are unaffected by it.
 
+Not to be confused with `docs/` at the repository root, which holds agent and
+contributor configuration (`docs/agents/`, `docs/adr/`) and is not published here.
+
 ## Commands
 
 ```bash

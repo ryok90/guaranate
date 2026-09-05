@@ -210,28 +210,28 @@ Refs: spec "Distribution".
 ## DOCS — Documentation website · `in-progress`
 
 Goal: a user-facing docs site that cannot drift from the shipped binary, living
-in this repository as a self-contained `docs/` package (no root `package.json`,
+in this repository as a self-contained `docs-website/` package (no root `package.json`,
 no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
 "Verification", spec "Core user-facing features".
 
-- [x] `DOCS-T1` Astro Starlight site under `docs/`, self-contained.
-  - Acceptance: `npm run build` in `docs/` produces a static site; the repository
-    root has no `package.json`; `swift build -c release` and `swift test` are
-    unaffected by the presence of `docs/`.
-  - Refs: `docs/package.json`, `docs/astro.config.mjs`.
+- [x] `DOCS-T1` Astro Starlight site under `docs-website/`, self-contained.
+  - Acceptance: `npm run build` in `docs-website/` produces a static site; the
+    repository root has no `package.json`; `swift build -c release` and `swift test`
+    are unaffected by the presence of `docs-website/`.
+  - Refs: `docs-website/package.json`, `docs-website/astro.config.mjs`.
 - [x] `DOCS-T2` CLI reference generated from the binary, not hand-maintained.
-  - Acceptance: `docs/scripts/gen-cli-reference.mjs` renders
-    `docs/src/content/docs/reference/cli.md` from
+  - Acceptance: `docs-website/scripts/gen-cli-reference.mjs` renders
+    `docs-website/src/content/docs/reference/cli.md` from
     `guaranate --experimental-dump-help`; `--check` mode fails on a stale page and
     runs in the macOS `Build & Test` job, so every documented flag and short alias
     matches the shipped binary.
-  - Refs: `docs/scripts/gen-cli-reference.mjs`, `.github/workflows/ci.yml`.
+  - Refs: `docs-website/scripts/gen-cli-reference.mjs`, `.github/workflows/ci.yml`.
 - [x] `DOCS-T3` Zephyr Cloud deployment wired into the docs build.
   - Acceptance: `withZephyr()` in the Astro config with `output: 'static'`;
     `.github/workflows/docs.yml` deploys `main` and internal PRs with `ZE_CI_TOKEN`
     + `ZE_FAIL_BUILD=true` (a deploy or plugin error fails the job) and
     build-verifies fork PRs without a token; internal PRs surface the preview URL.
-  - Refs: `.github/workflows/docs.yml`, `docs/README.md`.
+  - Refs: `.github/workflows/docs.yml`, `docs-website/README.md`.
 - [x] `DOCS-T4` CI path split between Swift and docs.
   - Acceptance: a docs-only PR does not run the Swift build/test/smoke job; a
     Swift-only PR does not run the docs job.
@@ -239,7 +239,7 @@ no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
 - [x] `DOCS-T5` v0.1 content: landing, install, sessions, how-it-works, roadmap.
   - Acceptance: no page advertises an unshipped command; planned surface is
     confined to the roadmap page and marked as planned; `GUARANATE.md`, `PLAN.md`,
-    and `AGENTS.md` stay root-internal and are not duplicated into `docs/`.
+    and `AGENTS.md` stay root-internal and are not duplicated into `docs-website/`.
 - [ ] `DOCS-T6` Canonical domain and Zephyr environment wiring.
   - Acceptance: a production domain is attached via Zephyr Tags & Environments,
     `DOCS_SITE_URL` is set for `main` builds (enabling canonical URLs and the
@@ -249,11 +249,11 @@ no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
   document.
 - [x] `DOCS-T8` Mascot branding across the site and `README.md`.
   - Acceptance: the six variants from the branding sheet are cut to transparent
-    PNGs by `docs/scripts/gen-brand-assets.sh` and each has exactly one use — site
+    PNGs by `docs-website/scripts/gen-brand-assets.sh` and each has exactly one use — site
     logo, landing hero, 404 hero, install guide, sessions guide, and the favicon;
     assets read correctly at favicon size and on both light and dark backgrounds.
-  - Refs: `docs/scripts/gen-brand-assets.sh`, `docs/src/assets/brand/`,
-    `docs/public/brand/`, #24.
+  - Refs: `docs-website/scripts/gen-brand-assets.sh`, `docs-website/src/assets/brand/`,
+    `docs-website/public/brand/`, #24.
 - [x] `DOCS-T9` Visual identity: brand palette, type, and navigation to the docs.
   - Acceptance: Starlight's grey and accent ramps are rotated to warm neutrals and
     the mascot's berry red, with aside/card accents in leaf green and guaraná amber;
@@ -261,7 +261,16 @@ no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
     images render uncropped; the landing page offers a "Read the docs" primary
     action and a "Where to next" card grid, not just an install link. Verified in
     both light and dark themes.
-  - Refs: `docs/src/styles/theme.css`, `docs/src/content/docs/index.mdx`.
+  - Refs: `docs-website/src/styles/theme.css`, `docs-website/src/content/docs/index.mdx`.
+
+- [x] `DOCS-T10` Split published docs from contributor/agent docs.
+  - Acceptance: the Astro site lives in `docs-website/` and `docs/` holds
+    contributor- and agent-facing documentation only (`docs/agents/` skill
+    configuration, `docs/adr/` decision records); every path reference — CI
+    workflows, `.gitignore`, the Starlight edit link, the generator scripts,
+    `README.md`, `AGENTS.md` — points at the new location, and `npm run build`
+    plus `npm run gen:cli:check` still pass from `docs-website/`.
+  - Refs: `docs/agents/`, `.github/workflows/docs.yml`, `.github/workflows/ci.yml`.
 
 ---
 

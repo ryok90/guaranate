@@ -247,6 +247,13 @@ no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
   - Refs: https://docs.zephyr-cloud.io/features/tags-environments.
 - [-] `DOCS-T7` Docs versioning. Deferred: pre-1.0 there is only one version to
   document.
+- [x] `DOCS-T8` Mascot branding across the site and `README.md`.
+  - Acceptance: the six variants from the branding sheet are cut to transparent
+    PNGs by `docs/scripts/gen-brand-assets.sh` and each has exactly one use — site
+    logo, landing hero, 404 hero, install guide, sessions guide, and the favicon;
+    assets read correctly at favicon size and on both light and dark backgrounds.
+  - Refs: `docs/scripts/gen-brand-assets.sh`, `docs/src/assets/brand/`,
+    `docs/public/brand/`, #24.
 
 ---
 

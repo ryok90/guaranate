@@ -41,6 +41,8 @@ cp .build/release/guaranate /usr/local/bin/   # or anywhere on your PATH
 
 ## Confirm the install
 
+<img src="/brand/wink.png" alt="" aria-hidden="true" width="120" align="right" />
+
 ```bash
 guaranate --version
 guaranate 5          # a five-second session

@@ -61,6 +61,8 @@ interrupted`). Press `q` or Ctrl+C to end it.
 
 ## Ending a session
 
+<img src="/brand/happy.png" alt="" aria-hidden="true" width="120" align="right" />
+
 | How it ends | Exit code |
 | --- | --- |
 | The duration elapses | `0` |

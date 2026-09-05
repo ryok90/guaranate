@@ -36,6 +36,30 @@ The page is committed because this site builds on Linux, where the macOS-only
 binary cannot be built. The Swift `Build & Test` CI job runs `gen:cli:check` on
 macOS, so a CLI change that forgets to regenerate the page fails there.
 
+## Brand assets
+
+`src/assets/brand/source-sheet.png` is the original branding sheet: six mascot
+variants in a 3x2 grid on a black background. Everything else is cut from it by
+`scripts/gen-brand-assets.sh` (ImageMagick + pngquant), which flood-fills the
+black background to transparency, trims, and quantizes:
+
+| Asset | Variant | Used by |
+| --- | --- | --- |
+| `src/assets/brand/mascot.png` | plain mascot | site header logo, `README.md` |
+| `src/assets/brand/terminal.png` | mascot in a terminal window | landing hero, `README.md` |
+| `src/assets/brand/sticker.png` | die-cut sticker | 404 page hero |
+| `public/brand/wink.png` | winking mascot | install guide |
+| `public/brand/happy.png` | happy mascot | sessions guide |
+| `public/brand/badge.png` | round badge | source of `public/favicon.png` |
+
+Assets under `src/assets/` are imported, so Astro optimizes and hashes them.
+Assets under `public/` are referenced by absolute path from plain Markdown, where
+Astro's image pipeline does not apply.
+
+```bash
+./scripts/gen-brand-assets.sh    # only needed if the sheet or a crop changes
+```
+
 ## Deployment
 
 Zephyr deploys **during** `npm run build` — there is no separate upload step, and
@@ -57,11 +81,11 @@ a git repository must be initialized (CI checkouts satisfy this). Consequences:
 and build-verifies pull requests from forks — which cannot read repository
 secrets, and so intentionally run without a token and without deploying.
 
-Building locally deploys if you are logged in to Zephyr. To build the site
-without deploying:
+Building locally deploys if you are logged in to Zephyr. `astro preview` loads the
+integration too, so with an expired session it stops and waits for a browser
+login. Either way, `SKIP_ZEPHYR=true` gives you a plain local site:
 
 ```bash
 SKIP_ZEPHYR=true npm run build
+SKIP_ZEPHYR=true npm run preview
 ```
-
-`npm run dev` never deploys.

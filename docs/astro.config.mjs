@@ -24,6 +24,8 @@ export default defineConfig({
       title: 'Guaranate',
       description:
         'Guaranate keeps your Mac awake with native macOS power assertions — friendlier and more scriptable than caffeinate.',
+      logo: { src: './src/assets/brand/mascot.png', alt: 'The Guaranate guaraná berry mascot' },
+      favicon: '/favicon.png',
       social: [{ icon: 'github', label: 'GitHub', href: repo }],
       editLink: { baseUrl: `${repo}/edit/main/docs/` },
       lastUpdated: true,

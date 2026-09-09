@@ -446,5 +446,114 @@ else
   echo "  · skipped: /usr/bin/perl is unavailable to create a zombie"
 fi
 
+# --- Test 15: terminating a stopped session ------------------------------------
+echo
+echo "▸ Test 15: while + SIGTERM while the job is stopped (a pause is not a hiding place)"
+reason15="$tag-while-stopped-term"
+"$BIN" while --reason "$reason15" /bin/sh -c 'sleep 30' 2>/dev/null &
+child_pid=$!
+wait_for_assertion "$reason15" present || fail "assertion never appeared"
+command_pid="$(pgrep -P "$child_pid" | head -1)"
+[[ -n "$command_pid" ]] || fail "could not find the command's pid"
+# Stop the command's group, exactly as Ctrl+Z does, and let Guaranate mirror it.
+kill -TSTP "-$command_pid" 2>/dev/null || fail "could not stop the command's group"
+for _ in $(seq 1 30); do
+  [[ "$(ps -o state= -p "$child_pid" | tr -d ' ')" == T* ]] && break
+  sleep 0.1
+done
+[[ "$(ps -o state= -p "$child_pid" | tr -d ' ')" == T* ]] || fail "Guaranate did not mirror the stop"
+assertion_present "$reason15" || fail "the assertion was dropped while the command was paused"
+# A stopped supervisor runs no code, so this has to work through the kernel's own
+# default action — otherwise the session is unreachable and holds the assertion.
+kill -TERM "$child_pid"
+status=0
+wait "$child_pid" 2>/dev/null || status=$?
+for _ in $(seq 1 50); do kill -0 "$command_pid" 2>/dev/null || break; sleep 0.1; done
+kill -0 "$command_pid" 2>/dev/null && fail "the command outlived the terminated session"
+child_pid=""
+wait_for_assertion "$reason15" absent || fail "stale assertion '$reason15' left behind"
+echo "  ✓ a stopped session still dies on SIGTERM, taking the command with it"
+echo "  ✓ no stale assertion"
+
+# --- Test 16: a command killed while it is still suspended ---------------------
+echo
+echo "▸ Test 16: while (a command killed before it is resumed reports its real status)"
+reason16="$tag-while-suspended"
+# The startup window is made deterministic by blocking the start-line write: a
+# line larger than the pipe buffer cannot complete until the pipe is drained, and
+# the command stays suspended until it does.
+big="$(printf 'x%.0s' $(seq 1 70000))"
+pipe="$(mktemp -u)"
+mkfifo "$pipe"
+( exec 9<"$pipe"; sleep 5; cat <&9 >/dev/null ) &
+extra_pid=$!
+"$BIN" while --reason "$reason16" /bin/echo "$big" 2>"$pipe" &
+child_pid=$!
+sleep 1.5
+command_pid="$(pgrep -P "$child_pid" | head -1)"
+[[ -n "$command_pid" ]] || fail "could not find the suspended command"
+[[ "$(ps -o state= -p "$command_pid" | tr -d ' ')" == T* ]] \
+  || fail "the command was not suspended at startup"
+kill -KILL "$command_pid"
+status=0
+wait "$child_pid" 2>/dev/null || status=$?
+child_pid=""
+(( status == 137 )) || fail "expected 137 for a command killed while suspended, got $status"
+wait "$extra_pid" 2>/dev/null || true
+extra_pid=""
+rm -f "$pipe"
+wait_for_assertion "$reason16" absent || fail "stale assertion '$reason16' left behind"
+echo "  ✓ reported 128+SIGKILL rather than inventing an exit status"
+
+# --- Test 17: closed stderr must not cost the launch-failure exit code ---------
+echo
+echo "▸ Test 17: while (a closed stderr still exits 127 for a missing command)"
+status=0
+"$BIN" while --reason "$tag-nostderr" definitely-not-a-real-command 2>&- || status=$?
+(( status == 127 )) || fail "expected 127 with stderr closed, got $status"
+echo "  ✓ the shell's conventional code survives an unwritable diagnostic"
+
+# --- Test 18: a pipeline is the command's, not Guaranate's ---------------------
+echo
+echo "▸ Test 18: while (a pipe closing early reaches the command, not the session)"
+reason18="$tag-while-pipe"
+err_file="$(mktemp)"
+set +e
+"$BIN" while --reason "$reason18" yes 2>"$err_file" | head -1 >/dev/null
+status="${PIPESTATUS[0]}"
+set -e
+(( status == 141 )) || fail "expected the command's own 141 from SIGPIPE, got $status"
+grep -q "staying awake" "$err_file" || fail "the start line was lost with the pipe"
+grep -q "assertion released" "$err_file" || fail "the release line was lost with the pipe"
+rm -f "$err_file"
+wait_for_assertion "$reason18" absent || fail "stale assertion '$reason18' left behind"
+echo "  ✓ the command died on SIGPIPE as it would unwrapped, status output intact"
+
+# --- Test 19: a `tostop` terminal must not stop the session --------------------
+echo
+echo "▸ Test 19: while (on a terminal with tostop, the handover costs nothing)"
+reason19="$tag-while-tostop"
+# `set -m` gives Guaranate its own process group under a real pty, which is what
+# makes a background write raise SIGTTOU rather than fail outright.
+tostop_out="$(mktemp)"
+script -q /dev/null /bin/bash --norc -c \
+  "set -m; stty tostop; '$BIN' while --reason '$reason19' /bin/sh -c 'echo COMMAND_RAN'; echo \"RC=\$?\"" \
+  >"$tostop_out" 2>&1 &
+child_pid=$!
+settled=0
+for _ in $(seq 1 100); do
+  grep -q "RC=" "$tostop_out" && { settled=1; break; }
+  sleep 0.1
+done
+(( settled == 1 )) || fail "the session never finished on a tostop terminal (likely stopped by SIGTTOU)"
+wait "$child_pid" 2>/dev/null || true
+child_pid=""
+grep -q "COMMAND_RAN" "$tostop_out" || fail "the command did not run on a tostop terminal"
+grep -q "staying awake" "$tostop_out" || fail "the start line was lost on a tostop terminal"
+grep -q "RC=0" "$tostop_out" || fail "the exit code did not survive a tostop terminal"
+rm -f "$tostop_out"
+wait_for_assertion "$reason19" absent || fail "stale assertion '$reason19' left behind"
+echo "  ✓ start line, command output, and exit code all survive tostop"
+
 echo
 echo "✓ smoke test passed"

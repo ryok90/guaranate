@@ -21,13 +21,13 @@ final class TimedSession: @unchecked Sendable {
     private let power: PowerAsserting
     private let renderer: TerminalRenderer
     private let watching: ProcessIdentity?
-    private let inspector: ProcessInspecting
+    private let registrar: ProcessExitRegistering
 
     private var token: PowerAssertionToken?
     private var renderTimer: DispatchSourceTimer?
     private var signalSources: [DispatchSourceSignal] = []
     private var keyboardSource: DispatchSourceRead?
-    private var watchSource: DispatchSourceProcess?
+    private var watchSource: DispatchSourceRead?
     private var originalTerminal: termios?
     private var finished = false
 
@@ -37,7 +37,7 @@ final class TimedSession: @unchecked Sendable {
         assertionType: PowerAssertionType,
         reason: String,
         power: PowerAsserting,
-        inspector: ProcessInspecting = SystemProcessInspector(),
+        registrar: ProcessExitRegistering = KqueueExitRegistrar(),
         renderer: TerminalRenderer = TerminalRenderer(),
         now: Date = Date()
     ) {
@@ -47,7 +47,7 @@ final class TimedSession: @unchecked Sendable {
         self.assertionType = assertionType
         self.reason = reason
         self.power = power
-        self.inspector = inspector
+        self.registrar = registrar
         self.renderer = renderer
     }
 
@@ -79,9 +79,11 @@ final class TimedSession: @unchecked Sendable {
     }
 
     private func installSignalHandlers() {
-        // A vanished reader on stdout must not end a session the user asked to
-        // last a fixed time; the frame writes tolerate failure instead.
+        // Neither a vanished reader nor a background write on a `tostop` terminal
+        // may end a session the user asked to last a fixed time: the frame writes
+        // tolerate failure instead.
         signal(SIGPIPE, SIG_IGN)
+        signal(SIGTTOU, SIG_IGN)
 
         for sig in [SIGINT, SIGTERM] {
             // Ignore the default disposition so the dispatch source is the sole handler.
@@ -95,27 +97,29 @@ final class TimedSession: @unchecked Sendable {
 
     /// Ends the session when the watched process exits.
     ///
-    /// libdispatch synthesizes an exit event when kqueue registration fails with
-    /// `ESRCH`, so a process that dies between lookup and registration still ends
-    /// the session exactly once. Re-reading the identity afterwards covers the
-    /// inverse hazard: a pid recycled in that same window now belongs to an
-    /// unrelated process, which must not inherit our assertion.
+    /// Registration is synchronous, and the identity is re-read only once it has
+    /// landed: any other order leaves a window where the watched process exits,
+    /// its pid is recycled, and the watch attaches to an unrelated process that
+    /// would then own our assertion. A process that ends inside that window is
+    /// reported by registration itself, so the session still finishes exactly once.
     private func installWatch() {
         guard let watching else { return }
 
-        let source = DispatchSource.makeProcessSource(
-            identifier: watching.pid,
-            eventMask: .exit,
-            queue: .main
-        )
+        let descriptor: Int32
+        do {
+            descriptor = try registrar.registerExit(of: watching)
+        } catch {
+            // Already gone, or unwatchable: the work this session was held for is
+            // over either way, and the assertion must not outlive it.
+            finish(interrupted: false)
+            return
+        }
+
+        let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: .main)
         source.setEventHandler { [weak self] in self?.finish(interrupted: false) }
+        source.setCancelHandler { close(descriptor) }
         watchSource = source
         source.resume()
-
-        let current = try? inspector.identity(of: watching.pid)
-        if current?.isSameProcess(as: watching) != true {
-            finish(interrupted: false)
-        }
     }
 
     /// Puts the terminal in cbreak mode (no line buffering, no echo) so a lone

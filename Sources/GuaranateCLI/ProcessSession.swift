@@ -22,9 +22,9 @@ final class ProcessSession: @unchecked Sendable {
     /// Signals whose disposition this process changes, and which therefore have
     /// to be restored to their defaults in the child: `SIG_IGN` is inherited
     /// across `exec`, so without the reset the command would be deaf to Ctrl+C —
-    /// and, for `SIGPIPE`, would survive a vanished reader that should have
-    /// ended it.
-    static let signalsResetInChild: [Int32] = forwardedSignals + [SIGCONT, SIGPIPE]
+    /// and, for `SIGPIPE` and `SIGTTOU`, would keep this process's tolerance for
+    /// a vanished reader or a background write that should have stopped it.
+    static let signalsResetInChild: [Int32] = forwardedSignals + [SIGCONT, SIGPIPE, SIGTTOU]
 
     private let invocation: CommandInvocation
     private let assertionType: PowerAssertionType
@@ -86,12 +86,24 @@ final class ProcessSession: @unchecked Sendable {
         // in place first, so nothing between here and `resume` can leave the
         // command unattended.
         watchChild()
+        // Announced before the handover, while this process is still the
+        // foreground group. Afterwards it is a background one, where a terminal
+        // with `tostop` set turns this very line into a `SIGTTOU` stop or an
+        // `EIO` failure. The command is suspended either way, so nothing of its
+        // own can interleave.
+        renderer.renderProcessStart(command: invocation.displayName, type: assertionType)
         terminal = TerminalForeground()
         terminal?.give(to: pid)
-        renderer.renderProcessStart(command: invocation.displayName, type: assertionType)
-        // Consume the initial suspension so it can never be misread as a Ctrl+Z.
-        _ = child.wait(pid)
-        child.resume(pid)
+
+        // Consume the initial suspension so it can never be misread as a Ctrl+Z —
+        // and honor it if the command was killed while it was still suspended,
+        // because this wait is the only one that will ever see that status.
+        switch child.wait(pid) {
+        case .ended(let status):
+            finish(status: status)
+        case .stopped, .running, .unavailable:
+            child.resume(pid)
+        }
 
         dispatchMain()
     }
@@ -139,6 +151,17 @@ final class ProcessSession: @unchecked Sendable {
         guard !stopped else { return }
         stopped = true
         terminal?.restore()
+        // A stopped process runs no code, so the dispatch sources cannot relay
+        // anything until something continues this one. Leaving termination
+        // signals ignored across a stop would make `kill` and a closed terminal
+        // silently do nothing — a paused session holding the assertion with no
+        // way left to reach it. The kernel's default action is the only thing
+        // that still works from here, so it gets the signals back for exactly as
+        // long as the pause lasts. That is also what would happen without
+        // Guaranate in front, and it is safe: the command's group is stopped at
+        // this point, so it is torn down by the `SIGHUP`/`SIGCONT` the kernel
+        // owes an orphaned stopped group, and the assertion goes with the process.
+        for sig in Self.forwardedSignals { signal(sig, SIG_DFL) }
         kill(getpid(), SIGSTOP)
     }
 
@@ -146,6 +169,8 @@ final class ProcessSession: @unchecked Sendable {
     private func resumeAfterStop() {
         guard let childPID, stopped else { return }
         stopped = false
+        // Relaying is possible again, so take the signals back from the kernel.
+        for sig in Self.forwardedSignals { signal(sig, SIG_IGN) }
         // Ownership is re-evaluated: a job that started in the background never
         // held the terminal, but `fg` has just handed it to us.
         if terminal == nil { terminal = TerminalForeground() }
@@ -156,11 +181,16 @@ final class ProcessSession: @unchecked Sendable {
     // MARK: - Signals
 
     private func installSignalHandlers() {
-        // A vanished stdout reader must not be able to kill the supervisor mid
-        // command — writes are failure-tolerant instead. The child gets the
-        // default disposition back, so it still dies on a broken pipe as it would
-        // if run directly.
+        // Status output must never be able to end or stop a session that already
+        // holds an assertion. A vanished reader would otherwise raise `SIGPIPE`,
+        // and a write from the background group — which is what this process
+        // becomes once the command owns the terminal — would raise `SIGTTOU` on a
+        // terminal with `tostop` set. Writes are failure-tolerant instead. The
+        // command gets both dispositions back, so it still dies on a broken pipe
+        // and still stops on a background write, exactly as if it were run
+        // directly.
         signal(SIGPIPE, SIG_IGN)
+        signal(SIGTTOU, SIG_IGN)
 
         for sig in Self.forwardedSignals + [SIGCONT] {
             // Ignore the default disposition so the dispatch source is the sole
@@ -225,9 +255,7 @@ final class ProcessSession: @unchecked Sendable {
         finished = true
         teardown()
 
-        FileHandle.standardError.write(
-            Data("guaranate: \(invocation.displayName) ended, but its exit status could not be read\n".utf8)
-        )
+        renderer.renderDiagnostic("\(invocation.displayName) ended, but its exit status could not be read")
         exit(1)
     }
 
@@ -235,7 +263,9 @@ final class ProcessSession: @unchecked Sendable {
     /// leaves no assertion behind.
     private func fail(_ error: ChildLaunchError) -> Never {
         teardown()
-        FileHandle.standardError.write(Data("guaranate: \(error)\n".utf8))
+        // Through the renderer, not `FileHandle`: a closed stderr must not turn a
+        // missing command into an abort, because 127 is the contract a script reads.
+        renderer.renderDiagnostic("\(error)")
         exit(error.exitCode)
     }
 

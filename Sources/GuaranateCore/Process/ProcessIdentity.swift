@@ -6,6 +6,8 @@ public enum ProcessLookupError: Error, Equatable, CustomStringConvertible {
     case invalidPID(pid_t)
     case noSuchProcess(pid_t)
     case wouldWatchItself(pid_t)
+    /// The process exists, but the kernel refused to report its exit.
+    case cannotWatch(pid_t, code: Int32)
 
     public var description: String {
         switch self {
@@ -15,6 +17,8 @@ public enum ProcessLookupError: Error, Equatable, CustomStringConvertible {
             return "No process with pid \(pid)."
         case .wouldWatchItself(let pid):
             return "Cannot watch guaranate's own process (pid \(pid))."
+        case .cannotWatch(let pid, let code):
+            return "Cannot watch pid \(pid): \(String(cString: strerror(code)))."
         }
     }
 }

@@ -270,6 +270,15 @@ final class TerminalRenderer: @unchecked Sendable {
         cursorHidden = false
     }
 
+    /// Reports a supervisor-level problem, prefixed the way a CLI names itself.
+    ///
+    /// Goes through the same failure-tolerant write as every other line: a
+    /// diagnostic that cannot be printed must still leave the exit code intact,
+    /// because the code is what a script reads.
+    func renderDiagnostic(_ message: String) {
+        write("guaranate: \(message)\n")
+    }
+
     /// Writes with `write(2)` and ignores failures.
     ///
     /// Status output must never be able to end a session: `FileHandle.write`

@@ -70,9 +70,11 @@ run from a shell that ignores `SIGPIPE` — some CI runners do — the command g
 `EPIPE` from the failed write and exits `1` instead. Wrapped or not, the outcome is
 the same, because Guaranate leaves the caller's dispositions alone.
 
-What a broken or closed stream can never do is end the session itself. Guaranate's
-own writes tolerate failure, so `guaranate while make > /dev/full` or a status line
-nobody is reading costs you the line — never the build, and never the assertion.
+What a broken, closed, or unread stream can never do is end the session — or hold
+it up. Guaranate's own writes tolerate failure and never wait for a reader, so
+`guaranate while make > /dev/full`, a status line nobody is reading, and a log pipe
+that has filled up all cost you the line and nothing else: never the build, never
+the assertion, and never the session's answer to Ctrl+C.
 
 ### Exit codes
 

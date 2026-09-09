@@ -36,7 +36,8 @@ final class ProcessSession: @unchecked Sendable {
     private var token: PowerAssertionToken?
     private var childPID: pid_t?
     private var stateSource: DispatchSourceProcess?
-    private var notes: SignalNotes?
+    private let registrar: SignalNoteRegistering
+    private var notes: (any SignalNoteReading)?
     private var noteSource: DispatchSourceRead?
     private var terminal: TerminalForeground?
     private var stopped = false
@@ -48,6 +49,7 @@ final class ProcessSession: @unchecked Sendable {
         reason: String,
         power: PowerAsserting,
         child: ChildLaunching = ChildProcess(),
+        registrar: SignalNoteRegistering = KqueueSignalNotes(),
         // Status output goes to stderr: stdout belongs to the command alone, so
         // `guaranate while jq … > out.json` writes only the command's own bytes.
         renderer: TerminalRenderer = TerminalRenderer(handle: .standardError),
@@ -58,6 +60,7 @@ final class ProcessSession: @unchecked Sendable {
         self.reason = reason
         self.power = power
         self.child = child
+        self.registrar = registrar
         self.renderer = renderer
         self.clock = clock
         self.start = clock()
@@ -206,41 +209,52 @@ final class ProcessSession: @unchecked Sendable {
     // MARK: - Signals
 
     private func installSignalHandlers() throws {
-        // Registration comes first, and the dispositions second. This platform
-        // discards whatever is pending for a signal the moment its disposition
-        // becomes `SIG_IGN`, so taking the signals over before the kernel is
-        // watching them would drop a Ctrl+C that lands in the gap instead of
-        // relaying it.
+        // Registration first, dispositions second, and both with the signals
+        // blocked. Ordering alone is not enough in either direction: taking a
+        // disposition over before the kernel is watching drops a Ctrl+C that lands
+        // in the gap, because this platform discards what is pending for a signal
+        // the moment it becomes `SIG_IGN` — and watching before taking it over
+        // leaves the kernel's default action free to end this process in the same
+        // gap. Blocked, neither can happen: the note is still recorded, and nothing
+        // acts on the signal until the mask lifts.
         let watched = Self.forwardedSignals + [SIGCONT]
-        let notes = try SignalNotes(watching: watched)
+        // `SIGPIPE` and `SIGTTOU` are taken over but never relayed, so they need no
+        // notes — only the same protection from arriving mid-install.
+        let notes = try withSignalsBlocked(watched + [SIGPIPE, SIGTTOU]) {
+            let notes = try registrar.registerNotes(watching: watched)
+            // Ignored so the kernel's default action cannot end or stop this process
+            // behind the relay's back. The child gets the dispositions back via
+            // POSIX_SPAWN_SETSIGDEF.
+            for sig in watched { take(sig) }
+            // Status output must never be able to end or stop a session that already
+            // holds an assertion. A vanished reader would otherwise raise `SIGPIPE`,
+            // and a write from the background group — which is what this process
+            // becomes once the command owns the terminal — would raise `SIGTTOU` on
+            // a terminal with `tostop` set. Writes are failure-tolerant instead. The
+            // command gets both dispositions back, so it still dies on a broken pipe
+            // and still stops on a background write, exactly as if it were run
+            // directly.
+            take(SIGPIPE)
+            take(SIGTTOU)
+            return notes
+        }
         self.notes = notes
 
         let source = DispatchSource.makeReadSource(fileDescriptor: notes.descriptor, queue: .main)
         source.setEventHandler { [weak self] in
             guard let self else { return }
-            for sig in notes.drain() {
-                sig == SIGCONT ? self.resumeAfterStop() : self.forward(sig)
-            }
+            let arrived = notes.drain()
+            // A continue is handled before anything else in the batch. Relaying
+            // first would resume the command without deciding who owns the
+            // terminal, and the continue behind it would then find nothing left to
+            // do — a command that ignores the relayed signal would come back with
+            // no terminal and stop again on its first read.
+            if arrived.contains(SIGCONT) { self.resumeAfterStop() }
+            for sig in arrived where sig != SIGCONT { self.forward(sig) }
         }
         source.setCancelHandler { notes.close() }
         noteSource = source
         source.resume()
-
-        // Now the dispositions: ignored so the kernel's default action cannot end
-        // or stop this process behind the relay's back. The child gets them back
-        // via POSIX_SPAWN_SETSIGDEF.
-        for sig in watched { take(sig) }
-
-        // Status output must never be able to end or stop a session that already
-        // holds an assertion. A vanished reader would otherwise raise `SIGPIPE`,
-        // and a write from the background group — which is what this process
-        // becomes once the command owns the terminal — would raise `SIGTTOU` on a
-        // terminal with `tostop` set. Writes are failure-tolerant instead. The
-        // command gets both dispositions back, so it still dies on a broken pipe
-        // and still stops on a background write, exactly as if it were run
-        // directly. Neither is relayed, so neither needs a note.
-        take(SIGPIPE)
-        take(SIGTTOU)
     }
 
     /// Takes a signal over from the kernel, and records whether the command will
@@ -281,14 +295,12 @@ final class ProcessSession: @unchecked Sendable {
             finish(status: .signalled(signal: sig))
             return
         }
-        child.send(sig, toProcessGroup: childPID)
         // A stopped command would leave the signal pending indefinitely, holding
-        // the assertion forever; wake it so the signal takes effect, as a shell
-        // does when it terminates a stopped job.
-        if stopped {
-            stopped = false
-            child.send(SIGCONT, toProcessGroup: childPID)
-        }
+        // the assertion forever, so it is continued first — through the same resume
+        // path, terminal ownership included, so a command that survives the signal
+        // comes back able to run instead of stopping again on its first read.
+        if stopped { resumeAfterStop() }
+        child.send(sig, toProcessGroup: childPID)
     }
 
     // MARK: - Teardown
@@ -394,7 +406,7 @@ private struct TerminalForeground {
             // overwrite it: a diagnostic reading ambient `errno` later is a lie.
             let code = errno
             guard code == EINTR else {
-                return TerminalHandoffFailure(pgid: pgid, code: code)
+                return .refused(pgid: pgid, code: code)
             }
         }
     }
@@ -406,12 +418,14 @@ private struct TerminalForeground {
 }
 
 /// Why the kernel refused to move the terminal's foreground process group.
-struct TerminalHandoffFailure: Error, CustomStringConvertible {
-    let pgid: pid_t
-    let code: Int32
+enum TerminalHandoffFailure: Error, Equatable, CustomStringConvertible {
+    case refused(pgid: pid_t, code: Int32)
 
     var description: String {
-        "could not hand the terminal to process group \(pgid): "
-            + String(cString: strerror(code))
+        switch self {
+        case .refused(let pgid, let code):
+            return "could not hand the terminal to process group \(pgid): "
+                + String(cString: strerror(code))
+        }
     }
 }

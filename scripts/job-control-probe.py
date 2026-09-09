@@ -18,6 +18,7 @@ Prints `KEY=value` lines for the caller to assert on.
 """
 import fcntl
 import os
+import select
 import signal
 import subprocess
 import sys
@@ -109,6 +110,11 @@ os.close(slave)
 collected = b""
 deadline = time.time() + 20
 while time.time() < deadline:
+    # `select` first: a blocking read would outlive the deadline it is supposed to
+    # respect, because the simulated shell holds the pty open.
+    ready, _, _ = select.select([master], [], [], 0.5)
+    if not ready:
+        continue
     try:
         chunk = os.read(master, 4096)
     except OSError:
@@ -116,5 +122,14 @@ while time.time() < deadline:
     if not chunk:
         break
     collected += chunk
+
+# Whatever happened, nothing is left behind: the shell leads its own session, so
+# one signal to its group reaches every fixture under it.
+try:
+    os.killpg(shell, signal.SIGKILL)
+except OSError:
+    pass
 os.waitpid(shell, 0)
 sys.stdout.write(collected.decode(errors="replace").replace("\r", ""))
+if time.time() >= deadline:
+    sys.exit("job-control-probe: timed out waiting for the simulated shell")

@@ -3,16 +3,19 @@ title: Roadmap
 description: What Guaranate ships today and which commands are still planned.
 ---
 
-Guaranate is pre-1.0. This page is the honest boundary between the two: if a
-command is not marked shipped, it does not exist in the binary yet and no guide
-on this site documents it as if it did.
+Guaranate is pre-1.0. This page is the honest boundary between the two: a command
+listed under "Planned" does not exist in the binary yet, and no guide on this site
+documents it as if it did. Guides do cover what is on `main` but not yet in a
+tagged release — the section below says which is which.
 
 Sequencing, task IDs, and acceptance criteria live in
 [`PLAN.md`](https://github.com/ryok90/guaranate/blob/main/PLAN.md); product
 intent lives in
 [`GUARANATE.md`](https://github.com/ryok90/guaranate/blob/main/GUARANATE.md).
 
-## Shipped
+## In the latest release
+
+Everything here is in v0.1.0.
 
 | Feature | Documented in |
 | --- | --- |
@@ -24,11 +27,16 @@ intent lives in
 | Live progress frame, with `q` to quit | [The live frame](/guides/timed-sessions/#the-live-frame) |
 | Guaranteed release on expiry, `q`, `SIGINT`, `SIGTERM` | [Ending a session](/guides/timed-sessions/#ending-a-session) |
 | Non-TTY-friendly output | [Scripts, pipes, and CI](/guides/timed-sessions/#scripts-pipes-and-ci) |
+
+## On `main`, in the next release
+
+Built and documented, but not in a tagged release yet: install from source to use
+these today.
+
+| Feature | Documented in |
+| --- | --- |
 | `guaranate while <cmd>` | [Wrapping a command](/guides/process-sessions/#wrapping-a-command) |
 | `guaranate --watch <pid>` | [Watching a process that already runs](/guides/process-sessions/#watching-a-process-that-already-runs) |
-
-`guaranate while <cmd>` and `guaranate --watch <pid>` are on `main` and ship in
-the next release; everything above them is in v0.1.0.
 
 ## Planned
 

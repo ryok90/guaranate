@@ -83,9 +83,17 @@ struct RunCommand: ParsableCommand {
         return "Watching \(target.displayName)"
     }
 
+    /// Resolves a pid to watch, keeping "you asked for the wrong thing" apart from
+    /// "the system could not answer". A pid that is absent, non-positive, or ours is
+    /// bad input and exits 64 with usage; a lookup that failed operationally is the
+    /// same class as a watch that cannot be attached, and exits 71 like one.
     private func lookUp(_ pid: pid_t) throws -> ProcessIdentity {
         do {
             return try SystemProcessInspector().identity(of: pid)
+        } catch let error as ProcessLookupError {
+            guard case .cannotWatch = error else { throw ValidationError("\(error)") }
+            TerminalRenderer(handle: .standardError).renderDiagnostic("\(error)")
+            throw ExitCode(71)
         } catch {
             throw ValidationError(String(describing: error))
         }

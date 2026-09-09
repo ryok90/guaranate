@@ -143,6 +143,21 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     shell it had just handed it back to. Covered by smoke test 23 through
     `scripts/job-control-probe.py`, because a non-interactive shell cannot offer
     `fg`/`bg` at all: it blocks forever on a stopped foreground job.
+  - A batch of notes is not order-free: a continue is applied before any relay in
+    it. Relaying first resumes the command without deciding terminal ownership, and
+    the continue behind it then finds nothing to do — a command that ignores the
+    relayed signal comes back with no terminal and stops again on `SIGTTIN`.
+    Reproduced before the fix (foreground group stayed Guaranate's, command back to
+    state `T`); relaying to a stopped command now goes through the same resume.
+  - Registration and dispositions are both done with the signals blocked. Ordering
+    alone leaves a window in whichever direction it is chosen: ignore-then-watch
+    drops the signal (`SIG_IGN` discards what is pending on this platform),
+    watch-then-ignore lets the kernel's default action end the process. Blocked,
+    the note is still recorded and nothing acts on the signal — verified directly
+    (`SignalNotesTests.testRecordsASignalThatArrivesDuringABlockedInstall`, which
+    sends a signal whose default action is death). The mask is the calling thread's,
+    so a signal the kernel routes elsewhere in that window still takes the default
+    path; that is before any child exists and leaves nothing behind.
   - The child also needs the dispositions Guaranate took over reset: it sets them
     to `SIG_IGN` so its dispatch sources are the sole handlers, and `SIG_IGN`
     survives `exec` — without `POSIX_SPAWN_SETSIGDEF` the command would be silently
@@ -179,15 +194,17 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     display-name quoting/escaping, process identity and pid-reuse detection,
     synchronous exit registration (attach, quiet-while-running, recycled identity,
     dead pid), synchronous signal-note registration (a signal reported after its
-    disposition is taken over, one raised beforehand provably discarded, coalescing,
-    multiple signals), a process owned by another user, plus `scripts/smoke.sh`
-    tests 3–23 against the real binary — which now also cover process-group
-    teardown, the terminal handoff under a pty, job control including termination of
-    a stopped session, a stopped session whose terminal disappears, and `fg`/`bg`
-    terminal ownership on resume, stdout purity, unreadable and closed output
-    streams, a command killed before it is resumed, a `tostop` terminal, a
-    backgrounded timed session, and inherited signal dispositions. Remaining:
-    `until` calculation (blocked on `M2-T8`).
+    disposition is taken over, one raised beforehand provably discarded, one that
+    arrives during a blocked install, coalescing, multiple signals, idempotent
+    close), a command killed while still suspended, a process owned by another user,
+    plus `scripts/smoke.sh` tests 3–23 against the real binary — which now also
+    cover process-group teardown, the terminal handoff under a pty, job control
+    including termination of a stopped session, a stopped session whose terminal
+    disappears (asserting the relay reached the command and the assertion outlived
+    it), `fg`/`bg` terminal ownership on resume, stdout purity, closed and unread
+    output streams — including a full pipe, which must cost the line and not the
+    session — a `tostop` terminal, a backgrounded timed session, and inherited
+    signal dispositions. Remaining: `until` calculation (blocked on `M2-T8`).
 - [x] `M2-T10` Hold the assertion until an already-running process exits.
   - Shipped as an option, `guaranate -w <pid>` / `--watch <pid>`, not the
     `watch <pid>` subcommand this task originally specified. #17 had rejected

@@ -36,6 +36,7 @@ tag="smoke-$$-$(date +%s)"
 child_pid=""
 target_pid=""
 extra_pid=""
+filler_pid=""
 
 fail() {
   echo "✗ FAIL: $*" >&2
@@ -52,6 +53,9 @@ cleanup() {
   fi
   if [[ -n "$extra_pid" ]] && kill -0 "$extra_pid" 2>/dev/null; then
     kill -KILL "$extra_pid" 2>/dev/null || true
+  fi
+  if [[ -n "$filler_pid" ]] && kill -0 "$filler_pid" 2>/dev/null; then
+    kill -KILL "$filler_pid" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -493,35 +497,37 @@ wait_for_assertion "$reason15" absent || fail "stale assertion '$reason15' left 
 echo "  ✓ once continued, the signal is relayed and a SIGHUP-proof command still dies"
 echo "  ✓ exit 143, no orphan, no stale assertion"
 
-# --- Test 16: a command killed while it is still suspended ---------------------
+# --- Test 16: a full, undrained stderr costs the line, never the session --------
 echo
-echo "▸ Test 16: while (a command killed before it is resumed reports its real status)"
-reason16="$tag-while-suspended"
-# The startup window is made deterministic by blocking the start-line write: a
-# line larger than the pipe buffer cannot complete until the pipe is drained, and
-# the command stays suspended until it does.
-big="$(printf 'x%.0s' $(seq 1 70000))"
+echo "▸ Test 16: while (an unread stderr cannot park the supervisor)"
+reason16="$tag-while-fullpipe"
+# A closed pipe raises SIGPIPE and an unread one is merely full — the second is the
+# dangerous one, because a blocking write parks the supervisor with the assertion
+# held and the command still suspended, answering no signal at all. The reader here
+# never reads: it holds the pipe open and sleeps.
 pipe="$(mktemp -u)"
 mkfifo "$pipe"
-( exec 9<"$pipe"; sleep 5; cat <&9 >/dev/null ) &
+( exec 9<"$pipe"; sleep 30 ) &
 extra_pid=$!
-"$BIN" while --reason "$reason16" /bin/echo "$big" 2>"$pipe" &
-child_pid=$!
-sleep 1.5
-command_pid="$(pgrep -P "$child_pid" | head -1)"
-[[ -n "$command_pid" ]] || fail "could not find the suspended command"
-[[ "$(ps -o state= -p "$command_pid" | tr -d ' ')" == T* ]] \
-  || fail "the command was not suspended at startup"
-kill -KILL "$command_pid"
+# Fill the pipe first, so the very first status line has nowhere to go.
+( exec 9>"$pipe"; head -c 65536 /dev/zero >&9 2>/dev/null ) &
+filler_pid=$!
+sleep 0.5
+start=$(date +%s)
 status=0
-wait "$child_pid" 2>/dev/null || status=$?
-child_pid=""
-(( status == 137 )) || fail "expected 137 for a command killed while suspended, got $status"
+"$BIN" while --reason "$reason16" /bin/sh -c 'exit 7' 2>"$pipe" || status=$?
+elapsed=$(( $(date +%s) - start ))
+(( status == 7 )) || fail "expected the command's own 7 through a full stderr, got $status"
+(( elapsed < 10 )) || fail "the session waited on an unread stderr for ${elapsed}s"
+kill -KILL "$filler_pid" 2>/dev/null || true
+wait "$filler_pid" 2>/dev/null || true
+filler_pid=""
+kill -KILL "$extra_pid" 2>/dev/null || true
 wait "$extra_pid" 2>/dev/null || true
 extra_pid=""
 rm -f "$pipe"
 wait_for_assertion "$reason16" absent || fail "stale assertion '$reason16' left behind"
-echo "  ✓ reported 128+SIGKILL rather than inventing an exit status"
+echo "  ✓ the status line was dropped, the command ran, the exit code survived"
 
 # --- Test 17: closed stderr must not cost the launch-failure exit code ---------
 echo
@@ -619,11 +625,16 @@ reason21="$tag-while-orphaned"
 # to a process group that becomes orphaned while stopped, which is exactly what a
 # closing terminal produces — and the command ignores SIGHUP, so only Guaranate's
 # own relay and its wait can end this cleanly.
+#
+# The command outlives every window in this test on its own, and records the
+# relayed signal, so neither half of the claim can pass by expiry: if the session
+# died instead of relaying, the marker stays empty and the command stays alive.
+marker="$(mktemp)"
 orphan_script="$(mktemp)"
 cat >"$orphan_script" <<ORPHAN
 set -m
-"$BIN" while --reason "$reason21" /bin/sh -c "trap '' HUP; sleep 3" &
-sleep 30
+"$BIN" while --reason "$reason21" /bin/sh -c "trap 'echo GOT-HUP >$marker; sleep 3; exit 0' HUP; sleep 60" &
+sleep 120
 ORPHAN
 script -q /dev/null /bin/bash --norc "$orphan_script" >/dev/null 2>&1 &
 extra_pid=$!
@@ -662,20 +673,27 @@ assertion_present "$reason21" || fail "the assertion was dropped while the job w
 kill -KILL "$extra_pid" 2>/dev/null || true
 wait "$extra_pid" 2>/dev/null || true
 extra_pid=""
-wait_for_assertion "$reason21" absent || fail "a stopped session held the assertion after losing its terminal"
-# Liveness by pid: a SIGHUP-ignoring command left behind is exactly the orphan
-# this must never produce, and it would not answer to any pattern.
-for _ in $(seq 1 50); do kill -0 "$child_pid" 2>/dev/null || break; sleep 0.2; done
-if kill -0 "$child_pid" 2>/dev/null; then
-  kill -CONT "$child_pid" 2>/dev/null || true
-  kill -KILL "$child_pid" 2>/dev/null || true
-  rm -f "$orphan_script"
-  fail "the command was orphaned by the lost terminal"
-fi
-rm -f "$orphan_script"
+# The order is the contract: the relay reaches the command, and only then is the
+# assertion released. An assertion that disappears while the command is still alive
+# is the orphan this exists to catch, whatever happens afterwards.
+released=0
+for _ in $(seq 1 100); do
+  if ! assertion_present "$reason21"; then
+    kill -0 "$child_pid" 2>/dev/null \
+      && fail "the assertion was released while the command was still running"
+    released=1
+    break
+  fi
+  sleep 0.2
+done
+(( released == 1 )) || fail "a stopped session held the assertion after losing its terminal"
+[[ -s "$marker" ]] || fail "the command was never sent the relayed SIGHUP"
+kill -0 "$child_pid" 2>/dev/null && fail "the command outlived the released assertion"
+child_pid=""
+rm -f "$orphan_script" "$marker"
 echo "  ✓ both halves stopped, assertion held while paused"
-echo "  ✓ the kernel's continue is enough: relayed, waited for, released"
-echo "  ✓ no orphan, no stale assertion"
+echo "  ✓ the kernel's continue is enough: the relay reached the command (GOT-HUP)"
+echo "  ✓ released only after the command was gone, no orphan"
 
 # --- Test 22: dispositions the caller chose are the command's, not ours ---------
 echo

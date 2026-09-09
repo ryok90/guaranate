@@ -13,7 +13,32 @@ public enum SignalWatchError: Error, Equatable, CustomStringConvertible {
     }
 }
 
-/// A kernel record of signals that arrive, kept independently of their disposition.
+/// Registering interest in signals sent to this process.
+///
+/// Split from the disposition changes a caller makes around it: a registrar
+/// promises that the kernel will record these signals, and says nothing about what
+/// happens to them afterwards.
+public protocol SignalNoteRegistering: Sendable {
+    /// Registers every signal in `signals` before returning, so a caller may change
+    /// their dispositions afterwards without opening a gap.
+    func registerNotes(watching signals: [Int32]) throws -> any SignalNoteReading
+}
+
+/// A kernel record of signals that have arrived, readable whatever their
+/// disposition is and whatever state this process is in.
+public protocol SignalNoteReading: Sendable {
+    /// Becomes readable while at least one watched signal has an unread note. The
+    /// reader must not close it; `close()` owns it.
+    var descriptor: Int32 { get }
+
+    /// The signals with notes waiting, if any. Never blocks.
+    func drain() -> [Int32]
+
+    /// Releases the registration. Idempotent.
+    func close()
+}
+
+/// `kqueue`-backed signal registration.
 ///
 /// A supervisor that relays signals rather than dying of them has to ignore their
 /// default dispositions, and on this platform setting a disposition to `SIG_IGN`
@@ -26,20 +51,53 @@ public enum SignalWatchError: Error, Equatable, CustomStringConvertible {
 /// `DispatchSource.makeSignalSource` cannot offer that: it registers on
 /// libdispatch's own queue, so `resume()` returns before the kernel knows about
 /// the watch and the gap stays open for as long as that takes.
-public final class SignalNotes: Sendable {
-    /// Becomes readable while at least one watched signal has an unread note.
-    public let descriptor: Int32
+public struct KqueueSignalNotes: SignalNoteRegistering {
+    public init() {}
 
-    /// Registers every signal in `signals` before returning, so a caller may change
-    /// their dispositions afterwards without opening a gap.
-    public init(watching signals: [Int32]) throws {
+    public func registerNotes(watching signals: [Int32]) throws -> any SignalNoteReading {
+        try SignalNotes(watching: signals)
+    }
+}
+
+/// Runs `body` with `signals` blocked, restoring the previous mask afterwards.
+///
+/// Blocking is what makes "register, then ignore" airtight rather than merely
+/// ordered: a blocked signal cannot take its default action, and its note is still
+/// recorded when it arrives, so neither outcome the ordering exists to prevent —
+/// dying of the signal, or losing it to `SIG_IGN` — can happen in between. The
+/// mask is this thread's, so a signal the kernel routes to another thread in that
+/// window still takes the default path; that happens before any child exists, and
+/// leaves nothing behind.
+public func withSignalsBlocked<T>(_ signals: [Int32], _ body: () throws -> T) rethrows -> T {
+    var blocking = sigset_t()
+    sigemptyset(&blocking)
+    for signal in signals { sigaddset(&blocking, signal) }
+
+    var previous = sigset_t()
+    sigprocmask(SIG_BLOCK, &blocking, &previous)
+    defer { sigprocmask(SIG_SETMASK, &previous, nil) }
+
+    return try body()
+}
+
+/// One `kqueue` holding `EVFILT_SIGNAL` registrations.
+///
+/// `@unchecked Sendable`: the descriptor is immutable and `kevent` is safe to call
+/// from any thread, but closing races with reading — so a lock serializes the two
+/// and makes `close()` idempotent. Closing twice would be worse than pointless: the
+/// number can be reused by then, and the second close would hit a stranger.
+final class SignalNotes: SignalNoteReading, @unchecked Sendable {
+    let descriptor: Int32
+    private let lock = NSLock()
+    private var closed = false
+
+    init(watching signals: [Int32]) throws {
         let queue = kqueue()
         guard queue >= 0 else {
             throw SignalWatchError.cannotWatch(signal: signals.first ?? 0, code: errno)
         }
 
-        // One owner for the descriptor on every failing path: closing it twice
-        // could hit an unrelated descriptor opened onto the same number in between.
+        // One owner for the descriptor on every failing path.
         var handedOff = false
         defer { if !handedOff { Darwin.close(queue) } }
 
@@ -62,11 +120,13 @@ public final class SignalNotes: Sendable {
         self.descriptor = queue
     }
 
-    /// The signals with notes waiting, if any. Never blocks.
-    ///
     /// Repeat arrivals of one signal coalesce into a single note, exactly as they
     /// do for a dispatch signal source: a relay is per signal, not per delivery.
-    public func drain(upTo limit: Int = 16) -> [Int32] {
+    func drain(upTo limit: Int = 16) -> [Int32] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return [] }
+
         // `kevent` names both a struct and a function here, so the struct is spelled
         // out; an unqualified `[kevent]` resolves to an array of the function.
         var events = [Darwin.kevent](repeating: Darwin.kevent(), count: limit)
@@ -81,7 +141,15 @@ public final class SignalNotes: Sendable {
         }
     }
 
-    public func close() {
+    func drain() -> [Int32] {
+        drain(upTo: 16)
+    }
+
+    func close() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return }
+        closed = true
         Darwin.close(descriptor)
     }
 }

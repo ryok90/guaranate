@@ -37,6 +37,31 @@ final class ChildProcessTests: XCTestCase {
         return pid
     }
 
+    /// A command can die before it is ever resumed — something else kills it, or the
+    /// system does. The supervisor's first wait is the only one that will ever see
+    /// that status, so it must report the real signal death instead of treating a
+    /// never-started command as a clean exit.
+    func testReportsARealSignalDeathForACommandKilledWhileSuspended() throws {
+        let pid = try child.launch(
+            CommandInvocation(argv: ["/bin/sh", "-c", "exit 0"]),
+            resettingSignals: []
+        )
+        // Never resumed: killed where the supervisor's startup sequence would find
+        // it, between the spawn and the first wait.
+        XCTAssertEqual(kill(pid, SIGKILL), 0, "could not kill the suspended command")
+
+        // `wait` never blocks, and the initial suspension may be reported once
+        // before the death is, so both non-final outcomes are polled through.
+        var outcome = child.wait(pid)
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if case .ended = outcome { break }
+            usleep(5_000)
+            outcome = child.wait(pid)
+        }
+        XCTAssertEqual(outcome, .ended(.signalled(signal: SIGKILL)))
+    }
+
     private func waitUntil(
         _ timeout: TimeInterval = 5,
         _ condition: () -> Bool

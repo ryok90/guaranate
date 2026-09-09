@@ -22,10 +22,11 @@ final class TimedSession: @unchecked Sendable {
     private let renderer: TerminalRenderer
     private let watching: ProcessIdentity?
     private let registrar: ProcessExitRegistering
+    private let signalRegistrar: SignalNoteRegistering
 
     private var token: PowerAssertionToken?
     private var renderTimer: DispatchSourceTimer?
-    private var notes: SignalNotes?
+    private var notes: (any SignalNoteReading)?
     private var noteSource: DispatchSourceRead?
     private var keyboardSource: DispatchSourceRead?
     private var watchSource: DispatchSourceRead?
@@ -39,6 +40,7 @@ final class TimedSession: @unchecked Sendable {
         reason: String,
         power: PowerAsserting,
         registrar: ProcessExitRegistering = KqueueExitRegistrar(),
+        signalRegistrar: SignalNoteRegistering = KqueueSignalNotes(),
         renderer: TerminalRenderer = TerminalRenderer(),
         now: Date = Date()
     ) {
@@ -49,6 +51,7 @@ final class TimedSession: @unchecked Sendable {
         self.reason = reason
         self.power = power
         self.registrar = registrar
+        self.signalRegistrar = signalRegistrar
         self.renderer = renderer
     }
 
@@ -85,12 +88,24 @@ final class TimedSession: @unchecked Sendable {
     }
 
     private func installSignalHandlers() throws {
-        // Registration before disposition, for the same reason the process session
-        // does it in that order: an ignored signal's pending state is discarded on
-        // this platform, so the kernel has to be watching before the disposition
-        // changes or a Ctrl+C at startup is simply gone.
-        let notes = try SignalNotes(watching: [SIGINT, SIGTERM])
+        // Registration first, dispositions second, both with the signals blocked —
+        // the same order and the same reason as the process session: this platform
+        // discards what is pending for a signal that becomes `SIG_IGN`, and the
+        // kernel's default action is free to end this process until it does.
+        let watched = [SIGINT, SIGTERM]
+        let notes = try withSignalsBlocked(watched + [SIGPIPE, SIGTTOU]) {
+            let notes = try signalRegistrar.registerNotes(watching: watched)
+            for sig in watched { signal(sig, SIG_IGN) }
+            // Neither a vanished reader nor a background write on a `tostop`
+            // terminal may end a session the user asked to last a fixed time: the
+            // frame writes tolerate failure instead. Neither is relayed, so neither
+            // needs a note.
+            signal(SIGPIPE, SIG_IGN)
+            signal(SIGTTOU, SIG_IGN)
+            return notes
+        }
         self.notes = notes
+
         let source = DispatchSource.makeReadSource(fileDescriptor: notes.descriptor, queue: .main)
         source.setEventHandler { [weak self] in
             guard let self, !notes.drain().isEmpty else { return }
@@ -99,14 +114,6 @@ final class TimedSession: @unchecked Sendable {
         source.setCancelHandler { notes.close() }
         noteSource = source
         source.resume()
-        signal(SIGINT, SIG_IGN)
-        signal(SIGTERM, SIG_IGN)
-
-        // Neither a vanished reader nor a background write on a `tostop` terminal
-        // may end a session the user asked to last a fixed time: the frame writes
-        // tolerate failure instead. Neither is relayed, so neither needs a note.
-        signal(SIGPIPE, SIG_IGN)
-        signal(SIGTTOU, SIG_IGN)
     }
 
     /// Ends the session when the watched process exits.

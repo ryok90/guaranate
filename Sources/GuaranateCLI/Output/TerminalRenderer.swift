@@ -281,19 +281,29 @@ final class TerminalRenderer: @unchecked Sendable {
         write("guaranate: \(message)\n", to: STDERR_FILENO)
     }
 
-    /// Writes with `write(2)` and ignores failures.
+    /// Writes with `write(2)`, and gives up rather than waiting.
     ///
-    /// Status output must never be able to end a session: `FileHandle.write`
-    /// raises on a closed descriptor, and a pipe whose reader has gone turns a
-    /// write into `SIGPIPE`. Either would tear the supervisor down in the middle
-    /// of the command it is supposed to be holding the assertion for.
+    /// Status output must never be able to end *or delay* a session:
+    /// `FileHandle.write` raises on a closed descriptor, a pipe whose reader has
+    /// gone turns a write into `SIGPIPE`, and a pipe that is merely full — open,
+    /// with a reader that is not reading — makes `write(2)` block. The first two
+    /// would tear the supervisor down; the third is worse, because it parks it with
+    /// the assertion held and the command still suspended, answering nothing.
+    ///
+    /// So writability is checked first, and the write is chunked to `PIPE_BUF`,
+    /// which a pipe guarantees room for once it reports itself writable. The
+    /// descriptor's own flags are left alone: it is shared with the command and the
+    /// calling shell, and making it non-blocking behind their backs would turn
+    /// their writes into failures.
     private func write(_ string: String, to descriptor: Int32? = nil) {
         let bytes = Array(string.utf8)
         let fd = descriptor ?? handle.fileDescriptor
         var offset = 0
         while offset < bytes.count {
+            guard acceptsWriteNow(fd) else { return }
+            let chunk = min(bytes.count - offset, Int(PIPE_BUF))
             let written = bytes.withUnsafeBufferPointer { buffer in
-                Darwin.write(fd, buffer.baseAddress! + offset, buffer.count - offset)
+                Darwin.write(fd, buffer.baseAddress! + offset, chunk)
             }
             if written > 0 {
                 offset += written
@@ -302,6 +312,25 @@ final class TerminalRenderer: @unchecked Sendable {
             } else {
                 return
             }
+        }
+    }
+
+    /// Whether `fd` has room for a `PIPE_BUF`-sized write right now.
+    ///
+    /// A pipe reports itself writable only when at least `PIPE_BUF` bytes are free,
+    /// which is exactly the guarantee this needs. Terminals, files and sockets say
+    /// yes almost always; a full pipe says no, and the line is dropped. When `poll`
+    /// itself cannot answer, the write is attempted anyway — refusing to print on a
+    /// descriptor that may well be fine would be its own failure.
+    private func acceptsWriteNow(_ fd: Int32) -> Bool {
+        var target = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        while true {
+            let ready = poll(&target, 1, 0)
+            if ready < 0 {
+                guard errno == EINTR else { return true }
+                continue
+            }
+            return ready > 0 && target.revents & Int16(POLLOUT) != 0
         }
     }
 

@@ -7,6 +7,7 @@ import XCTest
 /// kernel: these use `SIGUSR1`/`SIGUSR2`, which nothing else in the suite touches,
 /// and always ignore them first so a raised signal cannot end the test process.
 final class SignalNotesTests: XCTestCase {
+    private let registrar = KqueueSignalNotes()
     private var restore: [Int32: sig_t] = [:]
 
     private func ignore(_ sig: Int32) {
@@ -27,7 +28,7 @@ final class SignalNotesTests: XCTestCase {
     }
 
     func testReportsASignalRaisedAfterItsDispositionWasTakenOver() throws {
-        let notes = try SignalNotes(watching: [SIGUSR1])
+        let notes = try registrar.registerNotes(watching: [SIGUSR1])
         defer { notes.close() }
 
         // The order the supervisor uses: watch first, ignore second.
@@ -46,13 +47,13 @@ final class SignalNotesTests: XCTestCase {
         ignore(SIGUSR2)
         send(SIGUSR2)
 
-        let notes = try SignalNotes(watching: [SIGUSR2])
+        let notes = try registrar.registerNotes(watching: [SIGUSR2])
         defer { notes.close() }
         XCTAssertEqual(notes.drain(), [], "an ignored signal is discarded, not queued")
     }
 
     func testReportsEverySignalItWatches() throws {
-        let notes = try SignalNotes(watching: [SIGUSR1, SIGUSR2])
+        let notes = try registrar.registerNotes(watching: [SIGUSR1, SIGUSR2])
         defer { notes.close() }
         ignore(SIGUSR1)
         ignore(SIGUSR2)
@@ -65,7 +66,7 @@ final class SignalNotesTests: XCTestCase {
     /// Repeat arrivals coalesce, exactly as they do for a dispatch signal source:
     /// a relay is per signal, not per delivery.
     func testCoalescesRepeatArrivalsOfOneSignal() throws {
-        let notes = try SignalNotes(watching: [SIGUSR1])
+        let notes = try registrar.registerNotes(watching: [SIGUSR1])
         defer { notes.close() }
         ignore(SIGUSR1)
 
@@ -73,5 +74,28 @@ final class SignalNotesTests: XCTestCase {
         send(SIGUSR1)
         XCTAssertEqual(notes.drain(), [SIGUSR1])
         XCTAssertEqual(notes.drain(), [], "the note is consumed by the drain that reports it")
+    }
+
+    /// The order a session installs in: blocked, registered, then ignored. Blocked
+    /// is what makes it airtight — the signal can neither take its default action
+    /// nor be discarded by the disposition change, and its note is still recorded.
+    func testRecordsASignalThatArrivesDuringABlockedInstall() throws {
+        var notes: (any SignalNoteReading)?
+        defer { notes?.close() }
+
+        try withSignalsBlocked([SIGUSR1]) {
+            notes = try registrar.registerNotes(watching: [SIGUSR1])
+            send(SIGUSR1)  // would end this process unblocked: SIGUSR1 defaults to death
+            ignore(SIGUSR1)
+        }
+
+        XCTAssertEqual(notes?.drain(), [SIGUSR1], "the note outlived both the block and the ignore")
+    }
+
+    func testClosingTwiceIsHarmless() throws {
+        let notes = try registrar.registerNotes(watching: [SIGUSR1])
+        notes.close()
+        notes.close()
+        XCTAssertEqual(notes.drain(), [], "a closed registration reports nothing")
     }
 }

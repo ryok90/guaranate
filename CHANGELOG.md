@@ -77,6 +77,15 @@ dated, versioned section.
   only a pid that is genuinely gone ends the session, while an operational failure
   is reported and exits `71` rather than releasing the assertion and exiting `0`
   (#33).
+- An unread output stream can no longer stall a session: a status line whose reader
+  has stopped reading is dropped rather than waited on, so the command still runs
+  and Ctrl+C still works when a log pipe fills up (#33).
+- A signal that arrives while a `while` job is paused no longer costs the command
+  its terminal: the continue is applied before the signal is relayed, so a command
+  that survives the signal comes back able to read stdin instead of stopping again
+  (#33).
+- `--watch <pid>` reports a pid it cannot inspect as a system error (exit `71`)
+  rather than as bad input (exit `64`) (#33).
 
 ## [0.1.0] - 2026-08-29
 

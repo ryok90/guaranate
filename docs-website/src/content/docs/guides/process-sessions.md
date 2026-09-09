@@ -129,16 +129,22 @@ reports it as stopped and `fg` resumes both halves together. The assertion is
 deliberately kept while the command is paused: a pause is not an ending, and the
 work is still there to come back to.
 
-A pause is not a hiding place either, but the way out is a continue rather than a
-kill. A stopped process runs no code, so a signal that arrives while the job is
-paused is relayed the moment it is resumed — and everything that could otherwise
-strand a paused job resumes it for you: `fg`, `bg`, and `kill %job` all send
-`SIGCONT` along, and when a terminal closes, the kernel is required to send
-`SIGHUP` **and** `SIGCONT` to a job left stopped behind it. So a `kill` against a
-paused session takes effect, the command is signalled rather than abandoned, and
-the assertion is released once it has actually gone. A bare `kill -STOP` you sent
-yourself is the one exception: you are holding the pause, so continue it (or
-`kill -9`, which always works — the kernel drops assertions with the process).
+A pause is not a hiding place either, but the way out of one is a continue rather
+than a kill. A stopped process runs no code — Guaranate included — so a signal
+that arrives while the job is paused is recorded and relayed the moment the job is
+continued. Nothing is lost, and nothing is acted on early:
+
+| While the job is paused | What happens |
+| --- | --- |
+| `fg`, `bg` | Continues it; the session picks up where it left off |
+| `kill %job` from your shell | Continues it first, so the signal is relayed at once |
+| `kill -TERM <pid>`, or `kill %1` in a script | Waits for the next continue, as it would for any stopped process |
+| Terminal closes | The kernel owes a stopped, orphaned job `SIGHUP` **and** `SIGCONT`, so the session relays and releases on its own |
+| `kill -9` | Ends it immediately; the kernel drops assertions with the process |
+
+Resuming also decides the terminal again, rather than assuming the pause changed
+nothing: `fg` gives it back to the command, and `bg` leaves it with your shell so a
+background job cannot swallow what you type at the prompt.
 
 ### Your signal choices survive
 

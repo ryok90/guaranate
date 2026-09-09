@@ -328,24 +328,30 @@ Behavior:
    costs a status line, never the assertion.
 6. Keep the assertion for the lifetime of the child process. A stopped command is
    not a finished one, so the assertion is held while the job is paused. A stopped
-   supervisor runs no code, so a signal arriving during the pause is relayed when
-   the job is continued — and every path that could otherwise strand it supplies
-   that continue: `fg`, `bg`, POSIX `kill %job`, and the kernel itself, which owes
-   `SIGHUP` and `SIGCONT` to a process group orphaned while stopped. Handing the
-   signals back to the kernel for the duration of the pause is the wrong trade: it
-   would end Guaranate without relaying anything, orphaning a command that ignores
-   `SIGHUP` behind a released assertion.
-7. Leave the caller's own signal choices alone. Dispositions are inherited across
+   supervisor runs no code, so a signal arriving during the pause must be recorded
+   and relayed when the job is continued — never discarded, and never acted on
+   early. `fg` and `bg` supply that continue, as does an interactive shell's
+   `kill %job` and the kernel itself, which owes `SIGHUP` and `SIGCONT` to a
+   process group orphaned while stopped; a raw signal to a paused session waits,
+   exactly as it does for any stopped process. Handing the signals back to the
+   kernel for the duration of the pause is the wrong trade: it would end Guaranate
+   without relaying anything, orphaning a command that ignores `SIGHUP` behind a
+   released assertion.
+7. Decide terminal ownership on every resume, never remember it across a pause:
+   `fg` hands the terminal to the command, `bg` leaves it with the shell. A session
+   that assumes it still owns the terminal takes it from the shell it was handed
+   back to, so a background job swallows what the user types at the prompt.
+8. Leave the caller's own signal choices alone. Dispositions are inherited across
    `exec`, so a signal the surrounding shell deliberately ignores — as it does with
    `SIGINT` for background jobs — must stay ignored in the command. Guaranate
    restores only the dispositions it took over itself.
-8. Release the assertion once the child process has actually exited — a command
+9. Release the assertion once the child process has actually exited — a command
    must never keep running against a machine that has already been allowed to
    sleep.
-9. Exit with the child's exit code, or `128 + signal` when a signal killed it.
-   A command that cannot be found exits 127; one that cannot be executed exits
-   126, matching every POSIX shell.
-10. Never leave a stale assertion behind.
+10. Exit with the child's exit code, or `128 + signal` when a signal killed it.
+    A command that cannot be found exits 127; one that cannot be executed exits
+    126, matching every POSIX shell.
+11. Never leave a stale assertion behind.
 
 Example:
 

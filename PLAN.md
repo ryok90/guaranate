@@ -126,11 +126,23 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
   - A stopped supervisor can relay nothing, and handing the termination signals
     back to the kernel for the duration of the pause was tried and reverted: it
     ends Guaranate without relaying, which orphans a command that ignores `SIGHUP`
-    behind a released assertion. Keeping them means a signal sent during a pause is
-    relayed on the next continue — and every path that could strand a paused job
-    supplies one: `fg`, `bg`, POSIX `kill %job`, and the kernel's own `SIGHUP` +
-    `SIGCONT` to a process group orphaned while stopped. Covered by smoke tests 15
-    and 21, both using a command that ignores `SIGHUP` so only the relay can end it.
+    behind a released assertion. Keeping them means nothing is lost either: the
+    kernel's note of a signal that arrives during a pause outlives the pause, so it
+    is relayed on the next continue. What supplies that continue was measured
+    rather than assumed: `fg` and `bg` do; an *interactive* shell's `kill %job`
+    does (bash and zsh both continue a job they know is stopped — verified against
+    a `SIGTERM`-ignoring job under a real pty); the kernel does for a process group
+    orphaned while stopped, which is the terminal-closed case. A raw
+    `kill -TERM <pid>`, and `kill %1` from a *non-interactive* shell, do not — the
+    signal waits, exactly as it waits for any stopped process, and `kill -9` ends
+    the session outright. Covered by smoke tests 15 and 21, both using a command
+    that ignores `SIGHUP` so only the relay can end it.
+  - Terminal ownership is re-decided on every resume, never remembered across the
+    pause: `fg` hands the terminal to the command, `bg` leaves it with the shell,
+    and a session that assumed it still owned the terminal took it away from the
+    shell it had just handed it back to. Covered by smoke test 23 through
+    `scripts/job-control-probe.py`, because a non-interactive shell cannot offer
+    `fg`/`bg` at all: it blocks forever on a stopped foreground job.
   - The child also needs the dispositions Guaranate took over reset: it sets them
     to `SIG_IGN` so its dispatch sources are the sole handlers, and `SIG_IGN`
     survives `exec` — without `POSIX_SPAWN_SETSIGDEF` the command would be silently
@@ -166,13 +178,16 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     reaching the command's own children, rejection of an option-like command token,
     display-name quoting/escaping, process identity and pid-reuse detection,
     synchronous exit registration (attach, quiet-while-running, recycled identity,
-    dead pid), plus `scripts/smoke.sh` tests 3–22 against the real binary — which
-    now also cover process-group teardown, the terminal handoff under a pty, job
-    control including termination of a stopped session and a stopped session whose
-    terminal disappears, stdout purity, unreadable and closed output streams, a
-    command killed before it is resumed, a `tostop` terminal, a backgrounded timed
-    session, and inherited signal dispositions. Remaining: `until` calculation
-    (blocked on `M2-T8`).
+    dead pid), synchronous signal-note registration (a signal reported after its
+    disposition is taken over, one raised beforehand provably discarded, coalescing,
+    multiple signals), a process owned by another user, plus `scripts/smoke.sh`
+    tests 3–23 against the real binary — which now also cover process-group
+    teardown, the terminal handoff under a pty, job control including termination of
+    a stopped session, a stopped session whose terminal disappears, and `fg`/`bg`
+    terminal ownership on resume, stdout purity, unreadable and closed output
+    streams, a command killed before it is resumed, a `tostop` terminal, a
+    backgrounded timed session, and inherited signal dispositions. Remaining:
+    `until` calculation (blocked on `M2-T8`).
 - [x] `M2-T10` Hold the assertion until an already-running process exits.
   - Shipped as an option, `guaranate -w <pid>` / `--watch <pid>`, not the
     `watch <pid>` subcommand this task originally specified. #17 had rejected
@@ -195,11 +210,16 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     it, never before. `ESRCH` from registration is the "already gone" answer and
     ends the session normally; any other registration failure is an error that
     exits 71 (`EX_OSERR`), because releasing the assertion and exiting 0 would leave
-    the watched process running with nothing holding the Mac awake. The assertion
-    carries `kIOPMAssertionOnBehalfOfPID` so `pmset` names the watched process.
+    the watched process running with nothing holding the Mac awake. The same
+    distinction runs through the lookup itself: only a pid that is provably gone
+    (`ESRCH`, or a zero-length `sysctl` result) is an ending, while a lookup that
+    merely failed is an operational error — `EPERM` from the existence check means
+    "exists, not yours", which is watchable. The assertion carries
+    `kIOPMAssertionOnBehalfOfPID` so `pmset` names the watched process.
   - Refs: `Sources/GuaranateCore/Process/ProcessIdentity.swift`,
     `Sources/GuaranateCore/Process/ProcessExitRegistrar.swift`,
-    `Sources/GuaranateCLI/TimedSession.swift`, #33.
+    `Sources/GuaranateCore/Process/SignalNotes.swift`,
+    `Sources/GuaranateCLI/TimedSession.swift`, `scripts/job-control-probe.py`, #33.
 
 Design note: the bare-duration root command and subcommands now coexist via a
 `run` default subcommand. A root command that owns a positional argument cannot

@@ -67,6 +67,16 @@ dated, versioned section.
   the assertion rather than being suspended over a keystroke it should never have
   been reading. Ending one from the keyboard still needs the foreground (`q`), or
   `kill` from anywhere.
+- A `while` job resumed with `bg` no longer takes the terminal from the shell:
+  ownership is decided again on each resume, so `fg` gives the terminal to the
+  command and `bg` leaves your prompt's keyboard alone (#33).
+- A signal that arrives while a session is starting up, or while a `while` job is
+  paused, is no longer dropped: it is recorded before dispositions change and
+  relayed once the job continues (#33).
+- `--watch <pid>` no longer treats a failed process lookup as a finished process:
+  only a pid that is genuinely gone ends the session, while an operational failure
+  is reported and exits `71` rather than releasing the assertion and exiting `0`
+  (#33).
 
 ## [0.1.0] - 2026-08-29
 

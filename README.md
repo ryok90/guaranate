@@ -164,9 +164,12 @@ Guaranate in front: an interrupt arrives once, and Ctrl+Z stops the whole job fo
 `fg` to resume, assertion held while it is paused. Signals sent to Guaranate are
 relayed to the command's whole process group, so its children are signalled with
 it rather than left behind, and the assertion is released only once the command
-has exited — a stopped session relays when it is continued, which `fg`, `bg`,
-`kill %job`, and a closing terminal all do for you. A signal the calling shell
-deliberately ignores stays ignored in the command, too. Guaranate's own start and
+has exited — a stopped session relays when it is continued, which `fg`, `bg`, your
+shell's `kill %job` and a closing terminal all do for you; a raw signal to a paused
+session waits for that continue, exactly as it would for any stopped process.
+Resuming re-decides the terminal, so a job put in the background with `bg` leaves
+your shell's keyboard alone. A signal the calling shell deliberately ignores stays
+ignored in the command, too. Guaranate's own start and
 completion lines go to stderr, so stdout carries the command's output alone and
 `while` is safe in a pipeline: a reader that goes away reaches the command exactly
 as it would unwrapped, and never the session.

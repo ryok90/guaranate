@@ -30,33 +30,44 @@ public enum ChildLaunchError: Error, Equatable, CustomStringConvertible {
 
 /// Launching and supervising a child process.
 ///
-/// The real implementation calls `posix_spawnp`, `waitpid`, and `kill`; tests
-/// substitute a fake so child-lifecycle logic never spawns anything.
+/// The real implementation calls `posix_spawnp`, `waitpid`, and `killpg`. The
+/// protocol keeps the supervising session free of spawning details, and lets a
+/// future non-CLI front end drive the same lifecycle.
 public protocol ChildLaunching: Sendable {
-    /// Spawns `invocation`, resolving the executable against `PATH`.
+    /// Spawns `invocation` **suspended**, resolving the executable against `PATH`.
     ///
-    /// The child inherits this process's standard streams and process group, so
-    /// terminal signals reach it exactly as if it had been run directly. Any
-    /// signal in `resettingSignals` is restored to its default disposition in
-    /// the child, because dispositions set to `SIG_IGN` are otherwise inherited
-    /// across `exec`.
+    /// The child is the leader of a new process group, and is stopped before its
+    /// first instruction: the supervisor gets a window in which to hand it the
+    /// terminal and announce the session before any of the command's own output
+    /// can appear. Call `resume(_:)` to let it run.
+    ///
+    /// Any signal in `resettingSignals` is restored to its default disposition
+    /// in the child, because dispositions set to `SIG_IGN` are otherwise
+    /// inherited across `exec`.
     func launch(_ invocation: CommandInvocation, resettingSignals: [Int32]) throws -> pid_t
 
-    /// Reaps an exited child without blocking. Returns `nil` if the child has
-    /// not exited yet or was already reaped.
-    func reap(_ pid: pid_t) -> ExitStatus?
+    /// Lets a child returned by `launch(_:resettingSignals:)` start running.
+    func resume(_ pid: pid_t)
 
-    /// Forwards a signal to the child, ignoring failures (the child may have
+    /// Collects a child's latest state change without blocking, reaping it if it
+    /// has ended.
+    func wait(_ pid: pid_t) -> ChildWaitOutcome
+
+    /// Signals a whole process group, ignoring failures (the group may have
     /// exited between the signal arriving and this call).
-    func forward(_ signal: Int32, to pid: pid_t)
+    ///
+    /// Groups rather than single pids: the command's own children have to be
+    /// torn down too, otherwise a forwarded `SIGTERM` kills only the command and
+    /// leaves its work running against a machine allowed to sleep again.
+    func send(_ signal: Int32, toProcessGroup pgid: pid_t)
 }
 
 /// `posix_spawnp`-backed child supervision.
 ///
-/// Foundation's `Process` is deliberately not used: it always sets
-/// `POSIX_SPAWN_SETPGROUP`, which puts the child in its own process group where
-/// a terminal Ctrl+C never reaches it, and it never exposes the raw wait status
-/// needed to tell `exit(9)` from death by `SIGKILL`.
+/// Foundation's `Process` is deliberately not used: it never exposes the raw
+/// wait status needed to tell `exit(9)` from death by `SIGKILL`, it reaps the
+/// child itself, and it cannot start a child suspended — all three of which this
+/// supervisor depends on.
 public struct ChildProcess: ChildLaunching {
     public init() {}
 
@@ -73,10 +84,14 @@ public struct ChildProcess: ChildLaunching {
             sigaddset(&defaults, signal)
         }
         posix_spawnattr_setsigdefault(&attributes, &defaults)
-        // POSIX_SPAWN_SETPGROUP is intentionally absent: omitting it makes the
-        // child inherit our process group, keeping it in the terminal's
-        // foreground group so Ctrl+C is delivered to it directly.
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSIGDEF))
+        // A group of its own (pgroup 0 means "the child's own pid"): terminal
+        // signals then reach the command and its descendants as one unit, and
+        // never reach the supervisor, so a single Ctrl+C is delivered once.
+        posix_spawnattr_setpgroup(&attributes, 0)
+        posix_spawnattr_setflags(
+            &attributes,
+            Int16(POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_START_SUSPENDED)
+        )
 
         let argv = invocation.argv
         var pid = pid_t()
@@ -96,17 +111,26 @@ public struct ChildProcess: ChildLaunching {
         }
     }
 
-    public func reap(_ pid: pid_t) -> ExitStatus? {
-        var status: Int32 = 0
-        // The process source fires while the child is still an unreaped zombie,
-        // so this both collects the status and clears the zombie.
-        let reaped = waitpid(pid, &status, WNOHANG)
-        guard reaped == pid else { return nil }
-        return ExitStatus(rawWaitStatus: status)
+    public func resume(_ pid: pid_t) {
+        _ = kill(pid, SIGCONT)
     }
 
-    public func forward(_ signal: Int32, to pid: pid_t) {
-        _ = kill(pid, signal)
+    public func wait(_ pid: pid_t) -> ChildWaitOutcome {
+        var status: Int32 = 0
+        while true {
+            // `WUNTRACED` so Ctrl+Z is reported as a stop instead of being
+            // mistaken for death by signal 127; `WNOHANG` because this runs
+            // inside a dispatch event handler that must not block.
+            let reaped = waitpid(pid, &status, WNOHANG | WUNTRACED)
+            if reaped == pid { return ChildWaitOutcome(rawWaitStatus: status) }
+            if reaped == 0 { return .running }
+            if errno == EINTR { continue }
+            return .unavailable
+        }
+    }
+
+    public func send(_ signal: Int32, toProcessGroup pgid: pid_t) {
+        _ = killpg(pgid, signal)
     }
 
     /// Builds a NULL-terminated `char *const[]` that stays valid for the

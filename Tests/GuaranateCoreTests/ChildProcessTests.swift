@@ -7,43 +7,62 @@ import XCTest
 final class ChildProcessTests: XCTestCase {
     private let child = ChildProcess()
 
-    /// `reap` is non-blocking by design (it runs inside a dispatch exit handler),
-    /// so tests poll it.
+    /// `wait` is non-blocking by design (it runs inside a dispatch event
+    /// handler), so tests poll it.
     private func waitForExit(
         pid: pid_t,
-        timeout: TimeInterval = 10
+        timeout: TimeInterval = 10,
+        file: StaticString = #filePath,
+        line: UInt = #line
     ) throws -> ExitStatus {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let status = child.reap(pid) { return status }
+            if case .ended(let status) = child.wait(pid) { return status }
             usleep(2_000)
         }
-        throw XCTSkip("child \(pid) did not exit within \(timeout)s")
+        // Never a skip: a `wait` that stopped reporting exits has to fail the
+        // suite, not quietly excuse itself from it. Take the child down with it,
+        // so a failing test cannot leak a process into the rest of the run.
+        child.send(SIGKILL, toProcessGroup: pid)
+        var discarded: Int32 = 0
+        waitpid(pid, &discarded, 0)
+        XCTFail("child \(pid) did not exit within \(timeout)s", file: file, line: line)
+        throw ChildLaunchError.spawnFailed(command: "\(pid)", code: ETIMEDOUT)
+    }
+
+    /// Every child comes back suspended, so tests share one "launch and go".
+    private func start(_ argv: [String], resettingSignals: [Int32] = []) throws -> pid_t {
+        let pid = try child.launch(CommandInvocation(argv: argv), resettingSignals: resettingSignals)
+        child.resume(pid)
+        return pid
+    }
+
+    private func waitUntil(
+        _ timeout: TimeInterval = 5,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            usleep(5_000)
+        }
+        return false
     }
 
     func testPropagatesChildExitCode() throws {
-        let pid = try child.launch(
-            CommandInvocation(argv: ["/bin/sh", "-c", "exit 7"]),
-            resettingSignals: []
-        )
+        let pid = try start(["/bin/sh", "-c", "exit 7"])
         XCTAssertEqual(try waitForExit(pid: pid), .exited(code: 7))
     }
 
     func testReportsSignalDeath() throws {
-        let pid = try child.launch(
-            CommandInvocation(argv: ["/bin/sh", "-c", "kill -TERM $$"]),
-            resettingSignals: []
-        )
+        let pid = try start(["/bin/sh", "-c", "kill -TERM $$"])
         XCTAssertEqual(try waitForExit(pid: pid), .signalled(signal: SIGTERM))
     }
 
     /// Resolving through `PATH` is what makes `guaranate while npm test` work
     /// without an absolute path.
     func testResolvesExecutableThroughPATH() throws {
-        let pid = try child.launch(
-            CommandInvocation(argv: ["true"]),
-            resettingSignals: []
-        )
+        let pid = try start(["true"])
         XCTAssertEqual(try waitForExit(pid: pid), .exited(code: 0))
     }
 
@@ -80,20 +99,14 @@ final class ChildProcessTests: XCTestCase {
         let previous = signal(SIGINT, SIG_IGN)
         defer { signal(SIGINT, previous) }
 
-        let ignored = try child.launch(
-            CommandInvocation(argv: ["/bin/sh", "-c", "kill -INT $$; exit 0"]),
-            resettingSignals: []
-        )
+        let ignored = try start(["/bin/sh", "-c", "kill -INT $$; exit 0"])
         XCTAssertEqual(
             try waitForExit(pid: ignored),
             .exited(code: 0),
             "without a reset the child inherits SIG_IGN and survives its own SIGINT"
         )
 
-        let reset = try child.launch(
-            CommandInvocation(argv: ["/bin/sh", "-c", "kill -INT $$; exit 0"]),
-            resettingSignals: [SIGINT]
-        )
+        let reset = try start(["/bin/sh", "-c", "kill -INT $$; exit 0"], resettingSignals: [SIGINT])
         XCTAssertEqual(
             try waitForExit(pid: reset),
             .signalled(signal: SIGINT),
@@ -101,16 +114,90 @@ final class ChildProcessTests: XCTestCase {
         )
     }
 
-    /// Omitting `POSIX_SPAWN_SETPGROUP` keeps the child in the terminal's
-    /// foreground process group, which is how Ctrl+C reaches it at all.
-    func testChildInheritsOurProcessGroup() throws {
+    /// The command leads a process group of its own. That is what lets a terminal
+    /// signal reach the command and its descendants without also reaching the
+    /// supervisor — which would deliver a single Ctrl+C to the command twice.
+    func testChildLeadsItsOwnProcessGroup() throws {
+        let pid = try start(["/bin/sh", "-c", "exit 0"])
+        // Read the group before reaping, while the pid is still valid.
+        XCTAssertEqual(getpgid(pid), pid, "the child should be its own process-group leader")
+        XCTAssertNotEqual(getpgid(pid), getpgrp(), "the child must not share our group")
+        _ = try waitForExit(pid: pid)
+    }
+
+    /// Nothing of the command runs before `resume`, which is what lets the
+    /// supervisor hand over the terminal and print its start line first.
+    func testChildStartsSuspended() throws {
+        let marker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("guaranate-suspended-\(getpid())")
+        try? FileManager.default.removeItem(at: marker)
+        defer { try? FileManager.default.removeItem(at: marker) }
+
         let pid = try child.launch(
-            CommandInvocation(argv: ["/bin/sh", "-c", "exit 0"]),
+            CommandInvocation(argv: ["/bin/sh", "-c", "echo ran > \(marker.path)"]),
             resettingSignals: []
         )
-        // Read the group before reaping, while the pid is still valid.
-        let group = getpgid(pid)
-        XCTAssertEqual(group, getpgrp())
-        _ = try waitForExit(pid: pid)
+        usleep(200_000)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: marker.path),
+            "the command ran before it was resumed"
+        )
+
+        child.resume(pid)
+        XCTAssertEqual(try waitForExit(pid: pid), .exited(code: 0))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    /// A forwarded signal has to reach the command's own children too: signalling
+    /// the command alone would kill the shell and leave its work running while
+    /// the supervisor exits and the machine is allowed to sleep again.
+    func testSignallingTheGroupReachesTheCommandsChildren() throws {
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("guaranate-grandchild-\(getpid())")
+        try? FileManager.default.removeItem(at: pidFile)
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+
+        let pid = try start(["/bin/sh", "-c", "sleep 30 & echo $! > \(pidFile.path); wait"])
+
+        var grandchild: pid_t = 0
+        XCTAssertTrue(
+            waitUntil {
+                guard let text = try? String(contentsOf: pidFile, encoding: .utf8),
+                    let value = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                else { return false }
+                grandchild = value
+                return true
+            },
+            "the command never reported its child's pid"
+        )
+
+        child.send(SIGTERM, toProcessGroup: pid)
+        XCTAssertEqual(try waitForExit(pid: pid), .signalled(signal: SIGTERM))
+        XCTAssertTrue(
+            waitUntil { kill(grandchild, 0) != 0 && errno == ESRCH },
+            "the command's child \(grandchild) outlived the signalled group"
+        )
+    }
+
+    /// Ctrl+Z has to be distinguishable from an ending: the command still exists,
+    /// still owns the terminal, and still needs the machine kept awake.
+    func testWaitReportsAStopSeparatelyFromAnEnd() throws {
+        let pid = try start(["/bin/sleep", "30"])
+
+        child.send(SIGSTOP, toProcessGroup: pid)
+        XCTAssertTrue(
+            waitUntil { child.wait(pid) == .stopped(signal: SIGSTOP) },
+            "a stopped command was not reported as stopped"
+        )
+
+        child.send(SIGCONT, toProcessGroup: pid)
+        child.send(SIGTERM, toProcessGroup: pid)
+        XCTAssertEqual(try waitForExit(pid: pid), .signalled(signal: SIGTERM))
+    }
+
+    /// A pid this process is not the parent of yields no status at all. The
+    /// supervisor turns that into a failure rather than a fabricated exit 0.
+    func testWaitReportsUnavailableWhenThereIsNothingToWaitFor() {
+        XCTAssertEqual(child.wait(999_999), .unavailable)
     }
 }

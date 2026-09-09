@@ -92,6 +92,15 @@ public struct SystemProcessInspector: ProcessInspecting {
             throw ProcessLookupError.noSuchProcess(pid)
         }
 
+        // A zombie has already exited and only lingers until its parent reaps it,
+        // so `kill(pid, 0)` still succeeds for it. Watching one would hold the
+        // assertion for work that is already over — and, since `NOTE_EXIT` has
+        // nothing left to report, would hold it until the parent got around to
+        // reaping.
+        guard Int32(info.kp_proc.p_stat) != SZOMB else {
+            throw ProcessLookupError.noSuchProcess(pid)
+        }
+
         let started = info.kp_proc.p_starttime
         let startedAt = TimeInterval(started.tv_sec) + TimeInterval(started.tv_usec) / 1_000_000
         return ProcessIdentity(pid: pid, startedAt: startedAt, name: Self.name(from: info))

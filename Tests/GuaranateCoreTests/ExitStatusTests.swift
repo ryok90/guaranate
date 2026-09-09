@@ -53,3 +53,19 @@ final class ExitStatusTests: XCTestCase {
         XCTAssertEqual(ExitStatus.signalled(signal: 99).summary, "killed by signal 99")
     }
 }
+
+final class ChildWaitOutcomeTests: XCTestCase {
+    func testDecodesEndings() {
+        XCTAssertEqual(ChildWaitOutcome(rawWaitStatus: 7 << 8), .ended(.exited(code: 7)))
+        XCTAssertEqual(ChildWaitOutcome(rawWaitStatus: SIGTERM), .ended(.signalled(signal: SIGTERM)))
+    }
+
+    /// A stop status sets all seven signal bits, which as an ending would read as
+    /// death by signal 127 — so Ctrl+Z would look like a crash and the session
+    /// would release the assertion while the command was merely paused.
+    func testDecodesAStopRatherThanSignal127() {
+        let stopped = ChildWaitOutcome(rawWaitStatus: (SIGTSTP << 8) | 0x7f)
+        XCTAssertEqual(stopped, .stopped(signal: SIGTSTP))
+        XCTAssertNotEqual(stopped, .ended(.signalled(signal: 127)))
+    }
+}

@@ -54,9 +54,13 @@ final class TimedSession: @unchecked Sendable {
     /// Acquires the assertion and blocks the process until the session ends.
     func run() throws {
         token = try power.acquire(assertionType, reason: reason, onBehalfOf: watching?.pid)
+
+        // Before the first write, and before anything else can end the process:
+        // once the assertion exists, neither a signal nor a vanished reader on
+        // stdout may cut the session short.
+        installSignalHandlers()
         renderer.renderStart(deadline: deadline, type: assertionType, watching: watching?.displayName)
 
-        installSignalHandlers()
         startRenderTimer()
         installKeyboard()
         installWatch()
@@ -75,6 +79,10 @@ final class TimedSession: @unchecked Sendable {
     }
 
     private func installSignalHandlers() {
+        // A vanished reader on stdout must not end a session the user asked to
+        // last a fixed time; the frame writes tolerate failure instead.
+        signal(SIGPIPE, SIG_IGN)
+
         for sig in [SIGINT, SIGTERM] {
             // Ignore the default disposition so the dispatch source is the sole handler.
             signal(sig, SIG_IGN)

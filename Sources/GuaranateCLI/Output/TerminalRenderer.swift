@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import GuaranateCore
 
@@ -140,7 +141,7 @@ final class TerminalRenderer: @unchecked Sendable {
     /// The command owns the terminal from here on: its output passes straight
     /// through, so nothing is redrawn in place and the cursor is left alone.
     func renderProcessStart(command: String, type: PowerAssertionType) {
-        let detail = " · \(type.assertionLabel), display \(type.displayLabel.lowercased())"
+        let detail = " · \(type.summary)"
         write("🌿 Guaranate — staying awake while " + style(command, .value) + " runs"
             + style(detail, .label) + "\n")
     }
@@ -269,9 +270,28 @@ final class TerminalRenderer: @unchecked Sendable {
         cursorHidden = false
     }
 
+    /// Writes with `write(2)` and ignores failures.
+    ///
+    /// Status output must never be able to end a session: `FileHandle.write`
+    /// raises on a closed descriptor, and a pipe whose reader has gone turns a
+    /// write into `SIGPIPE`. Either would tear the supervisor down in the middle
+    /// of the command it is supposed to be holding the assertion for.
     private func write(_ string: String) {
-        guard let data = string.data(using: .utf8) else { return }
-        handle.write(data)
+        let bytes = Array(string.utf8)
+        let fd = handle.fileDescriptor
+        var offset = 0
+        while offset < bytes.count {
+            let written = bytes.withUnsafeBufferPointer { buffer in
+                Darwin.write(fd, buffer.baseAddress! + offset, buffer.count - offset)
+            }
+            if written > 0 {
+                offset += written
+            } else if written < 0, errno == EINTR {
+                continue
+            } else {
+                return
+            }
+        }
     }
 
     // MARK: - Layout

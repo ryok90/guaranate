@@ -13,8 +13,8 @@ public enum ExitStatus: Equatable, Sendable {
     /// Decodes a raw wait status as produced by `waitpid`.
     ///
     /// The low seven bits carry the terminating signal and are zero for a normal
-    /// exit; the next eight bits carry the exit code. Stop notifications are not
-    /// represented because callers never pass `WUNTRACED`.
+    /// exit; the next eight bits carry the exit code. Stop notifications never
+    /// arrive here: `ChildWaitOutcome` recognizes them first.
     public init(rawWaitStatus status: Int32) {
         let terminatingSignal = status & 0x7f
         if terminatingSignal == 0 {
@@ -74,6 +74,34 @@ public enum ExitStatus: Equatable, Sendable {
         case SIGUSR1: return "SIGUSR1"
         case SIGUSR2: return "SIGUSR2"
         default: return "signal \(signal)"
+        }
+    }
+}
+
+/// A supervised child's latest state change, as reported by `waitpid`.
+///
+/// Separate from `ExitStatus` because a stop is not an ending: the command is
+/// still there, still owns the terminal, and still needs the machine kept awake.
+public enum ChildWaitOutcome: Equatable, Sendable {
+    /// No state change since the last check.
+    case running
+    /// Stopped by a job-control signal (`SIGTSTP` from Ctrl+Z, `SIGSTOP`, …).
+    case stopped(signal: Int32)
+    /// Ended, and reaped.
+    case ended(ExitStatus)
+    /// `waitpid` failed: the child is gone but its status is unknowable, so a
+    /// supervisor must not claim it succeeded.
+    case unavailable
+
+    /// Decodes a raw wait status collected with `WUNTRACED`.
+    public init(rawWaitStatus status: Int32) {
+        // A stop is marked by all seven signal bits being set, with the stopping
+        // signal in the next eight. Checked first, because as an exit status the
+        // same bits would read as death by signal 127.
+        if status & 0x7f == 0x7f {
+            self = .stopped(signal: (status >> 8) & 0xff)
+        } else {
+            self = .ended(ExitStatus(rawWaitStatus: status))
         }
     }
 }

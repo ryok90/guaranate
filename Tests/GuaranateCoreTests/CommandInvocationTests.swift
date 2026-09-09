@@ -32,6 +32,35 @@ final class CommandInvocationTests: XCTestCase {
         }
     }
 
+    /// A mistyped flag of ours must not silently become the command: without this
+    /// `guaranate while -w 1234` reported "-w: command not found" and exited 127.
+    func testRejectsAnOptionLikeCommand() {
+        XCTAssertThrowsError(try CommandInvocation(argv: ["-w", "1234"])) { error in
+            XCTAssertEqual(error as? CommandInvocationError, .looksLikeOption("-w"))
+        }
+        XCTAssertThrowsError(try CommandInvocation(argv: ["--nope"])) { error in
+            XCTAssertEqual(error as? CommandInvocationError, .looksLikeOption("--nope"))
+        }
+    }
+
+    /// An explicit `--` is the user saying they really do mean a program whose
+    /// name starts with a dash.
+    func testSeparatorAllowsADashLeadingCommand() throws {
+        let invocation = try CommandInvocation(argv: ["--", "-w", "1234"])
+        XCTAssertEqual(invocation.executable, "-w")
+        XCTAssertEqual(invocation.arguments, ["1234"])
+    }
+
+    /// Quoting has to be unambiguous, so a quote inside a token is escaped rather
+    /// than closing the quoted run early.
+    func testDisplayNameEscapesQuotesAndBackslashes() throws {
+        let invocation = try CommandInvocation(argv: ["sh", "-c", #"echo "hi there""#])
+        XCTAssertEqual(invocation.displayName, #"sh -c "echo \"hi there\"""#)
+
+        let windows = try CommandInvocation(argv: ["run", #"C:\Program Files\x"#])
+        XCTAssertEqual(windows.displayName, #"run "C:\\Program Files\\x""#)
+    }
+
     func testDisplayNameQuotesArgumentsContainingSpaces() throws {
         let invocation = try CommandInvocation(argv: ["sh", "-c", "echo hello"])
         XCTAssertEqual(invocation.displayName, "sh -c \"echo hello\"")

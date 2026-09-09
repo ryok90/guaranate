@@ -43,4 +43,15 @@ public enum PowerAssertionType: String, Sendable, Equatable, CaseIterable {
     public var displayLabel: String {
         allowsDisplaySleep ? "May sleep" : "Kept awake"
     }
+
+    /// One-line description for output with no room for a table, such as the
+    /// `while` start line. Reads as a phrase after a separator: `· System sleep
+    /// prevented, display may sleep`.
+    public var summary: String {
+        switch self {
+        case .preventUserIdleSystemSleep: return "System sleep prevented, display may sleep"
+        case .preventUserIdleDisplaySleep: return "Display and system kept awake"
+        case .preventSystemSleep: return "All system sleep prevented"
+        }
+    }
 }

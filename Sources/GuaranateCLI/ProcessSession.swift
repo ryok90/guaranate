@@ -36,7 +36,8 @@ final class ProcessSession: @unchecked Sendable {
     private var token: PowerAssertionToken?
     private var childPID: pid_t?
     private var stateSource: DispatchSourceProcess?
-    private var signalSources: [DispatchSourceSignal] = []
+    private var notes: SignalNotes?
+    private var noteSource: DispatchSourceRead?
     private var terminal: TerminalForeground?
     private var stopped = false
     private var finished = false
@@ -67,8 +68,14 @@ final class ProcessSession: @unchecked Sendable {
         token = try power.acquire(assertionType, reason: reason, onBehalfOf: nil)
 
         // Installed before spawning so a signal arriving during startup cannot
-        // kill this process and orphan the assertion.
-        installSignalHandlers()
+        // kill this process and orphan the assertion. A supervisor that cannot be
+        // signalled cannot be cancelled either, so a failure here is fatal rather
+        // than quietly accepted — and it happens before any child exists.
+        do {
+            try installSignalHandlers()
+        } catch {
+            failToSupervise(error)
+        }
 
         let pid: pid_t
         do {
@@ -91,16 +98,13 @@ final class ProcessSession: @unchecked Sendable {
         // own can interleave.
         renderer.renderProcessStart(command: invocation.displayName, type: assertionType)
         terminal = TerminalForeground()
-        if let owned = terminal, !owned.give(to: pid) {
+        if let failure = terminal?.give(to: pid) {
             // Owning the terminal but being refused the handover is not silent, and
             // not fatal either: the command runs in a background group, where only
             // reading stdin would stop it — and a `fg` after that stop re-hands the
             // terminal, which is the same recovery Ctrl+Z already uses. Ownership is
             // dropped so teardown does not claim back something never handed over.
-            renderer.renderDiagnostic(
-                "could not hand the terminal to \(invocation.displayName): "
-                    + String(cString: strerror(errno))
-            )
+            renderer.renderDiagnostic("\(failure)")
             terminal = nil
         }
 
@@ -159,18 +163,23 @@ final class ProcessSession: @unchecked Sendable {
     private func handleStop() {
         guard !stopped else { return }
         stopped = true
-        terminal?.restore()
+        reportTerminal(terminal?.restore())
+        // Ownership ends with the pause. Whoever continues the job decides who owns
+        // the terminal next: `fg` hands it to this process, `bg` keeps it for the
+        // shell — so holding on to a stale claim here is how a background job comes
+        // back and takes the shell's terminal away from it.
+        terminal = nil
         // Termination signals stay ignored across the pause, so they stay this
-        // process's to relay. A stopped process runs no code, so one that arrives
-        // now is only acted on once something continues this one — which is what
-        // every path that can strand a paused job already does: `fg` and `bg`
-        // continue it, POSIX `kill %job` sends `SIGCONT` alongside the signal, and
-        // a process group that becomes orphaned while stopped is owed `SIGHUP` and
-        // `SIGCONT` by the kernel, which is what happens when the terminal goes
-        // away. Handing the signals back to the kernel instead would end this
-        // process without relaying anything, orphaning a command that ignores
-        // `SIGHUP` — a running command behind a released assertion, which is the
-        // one outcome that must never happen.
+        // process's to relay, and the kernel's note of one that arrives now
+        // outlives the pause. A stopped process runs no code, so it is acted on
+        // once something continues this one: `fg`, `bg`, an interactive shell's
+        // `kill %job` (which continues a job it knows is stopped), `kill -CONT`,
+        // or the kernel itself, which owes `SIGHUP` and `SIGCONT` to a process
+        // group that becomes orphaned while stopped — the terminal-closed case.
+        // Handing the signals back to the kernel instead would end this process
+        // without relaying anything, orphaning a command that ignores `SIGHUP` — a
+        // running command behind a released assertion, the one outcome that must
+        // never happen.
         kill(getpid(), SIGSTOP)
     }
 
@@ -178,16 +187,50 @@ final class ProcessSession: @unchecked Sendable {
     private func resumeAfterStop() {
         guard let childPID, stopped else { return }
         stopped = false
-        // Ownership is re-evaluated: a job that started in the background never
-        // held the terminal, but `fg` has just handed it to us.
-        if terminal == nil { terminal = TerminalForeground() }
-        terminal?.give(to: childPID)
+        // Ownership is re-evaluated rather than assumed: this constructs a claim
+        // only while this process really is the terminal's foreground group, which
+        // is true after `fg` and false after `bg`.
+        terminal = TerminalForeground()
+        reportTerminal(terminal?.give(to: childPID))
         child.send(SIGCONT, toProcessGroup: childPID)
+    }
+
+    /// Surfaces a refused terminal move. There is nothing to recover here — the
+    /// command keeps running either way — but a supervisor that quietly loses the
+    /// terminal leaves a command that behaves differently for no visible reason.
+    private func reportTerminal(_ failure: TerminalHandoffFailure?) {
+        guard let failure else { return }
+        renderer.renderDiagnostic("\(failure)")
     }
 
     // MARK: - Signals
 
-    private func installSignalHandlers() {
+    private func installSignalHandlers() throws {
+        // Registration comes first, and the dispositions second. This platform
+        // discards whatever is pending for a signal the moment its disposition
+        // becomes `SIG_IGN`, so taking the signals over before the kernel is
+        // watching them would drop a Ctrl+C that lands in the gap instead of
+        // relaying it.
+        let watched = Self.forwardedSignals + [SIGCONT]
+        let notes = try SignalNotes(watching: watched)
+        self.notes = notes
+
+        let source = DispatchSource.makeReadSource(fileDescriptor: notes.descriptor, queue: .main)
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            for sig in notes.drain() {
+                sig == SIGCONT ? self.resumeAfterStop() : self.forward(sig)
+            }
+        }
+        source.setCancelHandler { notes.close() }
+        noteSource = source
+        source.resume()
+
+        // Now the dispositions: ignored so the kernel's default action cannot end
+        // or stop this process behind the relay's back. The child gets them back
+        // via POSIX_SPAWN_SETSIGDEF.
+        for sig in watched { take(sig) }
+
         // Status output must never be able to end or stop a session that already
         // holds an assertion. A vanished reader would otherwise raise `SIGPIPE`,
         // and a write from the background group — which is what this process
@@ -195,22 +238,9 @@ final class ProcessSession: @unchecked Sendable {
         // terminal with `tostop` set. Writes are failure-tolerant instead. The
         // command gets both dispositions back, so it still dies on a broken pipe
         // and still stops on a background write, exactly as if it were run
-        // directly.
+        // directly. Neither is relayed, so neither needs a note.
         take(SIGPIPE)
         take(SIGTTOU)
-
-        for sig in Self.forwardedSignals + [SIGCONT] {
-            // Ignore the default disposition so the dispatch source is the sole
-            // handler; the child gets the default back via POSIX_SPAWN_SETSIGDEF.
-            take(sig)
-            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
-            source.setEventHandler { [weak self] in
-                guard let self else { return }
-                sig == SIGCONT ? self.resumeAfterStop() : self.forward(sig)
-            }
-            signalSources.append(source)
-            source.resume()
-        }
     }
 
     /// Takes a signal over from the kernel, and records whether the command will
@@ -239,10 +269,12 @@ final class ProcessSession: @unchecked Sendable {
     /// The session deliberately does not end here: the assertion is held until
     /// the command has actually exited, so it is never left running against a
     /// machine that has been allowed to sleep. The command is signalled as a
-    /// group so its own children are torn down with it, and it is signalled only
-    /// from here — it has its own process group, so a terminal Ctrl+C reaches it
-    /// directly and never reaches this process, which is what keeps a single
-    /// keypress from arriving twice.
+    /// group, so its own descendants are signalled with it rather than left behind
+    /// a released assertion — signalled, not guaranteed to die: one that ignores
+    /// or survives the signal keeps running, exactly as it would have without
+    /// Guaranate in front. It is signalled only from here — it has its own process
+    /// group, so a terminal Ctrl+C reaches it directly and never reaches this
+    /// process, which is what keeps a single keypress from arriving twice.
     private func forward(_ sig: Int32) {
         guard let childPID else {
             // Signalled before the child existed: nothing to wait for.
@@ -297,12 +329,24 @@ final class ProcessSession: @unchecked Sendable {
         exit(error.exitCode)
     }
 
+    /// Reports a supervisor that could not be established, before any command was
+    /// launched. `EX_OSERR`, the same code a watch that cannot be attached uses:
+    /// the request was valid, the system could not carry it out.
+    private func failToSupervise(_ error: Error) -> Never {
+        teardown()
+        renderer.renderDiagnostic("\(error)")
+        exit(71)
+    }
+
     /// Stops watching, gives the terminal back, and releases the assertion.
     /// Ordered so this process owns the terminal again before it writes anything.
     private func teardown() {
         stateSource?.cancel()
         stateSource = nil
-        terminal?.restore()
+        noteSource?.cancel()
+        noteSource = nil
+        notes = nil
+        reportTerminal(terminal?.restore())
         terminal = nil
         if let token {
             power.release(token)
@@ -334,25 +378,40 @@ private struct TerminalForeground {
         self.previous = foreground
     }
 
-    /// Hands the terminal to `pgid`, reporting whether the kernel accepted it.
+    /// Hands the terminal to `pgid`, reporting why the kernel refused if it did.
     ///
     /// A silently failed handover is the worst outcome available: the command would
     /// run in a background process group, where reading stdin stops it with
     /// `SIGTTIN` instead of working the way the same command works unwrapped.
-    @discardableResult
-    func give(to pgid: pid_t) -> Bool {
+    func give(to pgid: pid_t) -> TerminalHandoffFailure? {
         // `tcsetpgrp` from a background process group raises `SIGTTOU` at the
         // caller — which is exactly the situation when handing the terminal back.
         let previousDisposition = signal(SIGTTOU, SIG_IGN)
         defer { signal(SIGTTOU, previousDisposition) }
         while true {
-            if tcsetpgrp(fd, pgid) == 0 { return true }
-            guard errno == EINTR else { return false }
+            if tcsetpgrp(fd, pgid) == 0 { return nil }
+            // Captured before the deferred `signal` call, or anything else, can
+            // overwrite it: a diagnostic reading ambient `errno` later is a lie.
+            let code = errno
+            guard code == EINTR else {
+                return TerminalHandoffFailure(pgid: pgid, code: code)
+            }
         }
     }
 
-    @discardableResult
-    func restore() -> Bool {
+    /// Gives the terminal back to whoever held it before this process took over.
+    func restore() -> TerminalHandoffFailure? {
         give(to: previous)
+    }
+}
+
+/// Why the kernel refused to move the terminal's foreground process group.
+struct TerminalHandoffFailure: Error, CustomStringConvertible {
+    let pgid: pid_t
+    let code: Int32
+
+    var description: String {
+        "could not hand the terminal to process group \(pgid): "
+            + String(cString: strerror(code))
     }
 }

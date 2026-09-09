@@ -25,7 +25,8 @@ final class TimedSession: @unchecked Sendable {
 
     private var token: PowerAssertionToken?
     private var renderTimer: DispatchSourceTimer?
-    private var signalSources: [DispatchSourceSignal] = []
+    private var notes: SignalNotes?
+    private var noteSource: DispatchSourceRead?
     private var keyboardSource: DispatchSourceRead?
     private var watchSource: DispatchSourceRead?
     private var originalTerminal: termios?
@@ -58,7 +59,12 @@ final class TimedSession: @unchecked Sendable {
         // Before the first write, and before anything else can end the process:
         // once the assertion exists, neither a signal nor a vanished reader on
         // stdout may cut the session short.
-        installSignalHandlers()
+        do {
+            try installSignalHandlers()
+        } catch {
+            failToSupervise(error)
+            return
+        }
         renderer.renderStart(deadline: deadline, type: assertionType, watching: watching?.displayName)
 
         startRenderTimer()
@@ -78,21 +84,29 @@ final class TimedSession: @unchecked Sendable {
         timer.resume()
     }
 
-    private func installSignalHandlers() {
+    private func installSignalHandlers() throws {
+        // Registration before disposition, for the same reason the process session
+        // does it in that order: an ignored signal's pending state is discarded on
+        // this platform, so the kernel has to be watching before the disposition
+        // changes or a Ctrl+C at startup is simply gone.
+        let notes = try SignalNotes(watching: [SIGINT, SIGTERM])
+        self.notes = notes
+        let source = DispatchSource.makeReadSource(fileDescriptor: notes.descriptor, queue: .main)
+        source.setEventHandler { [weak self] in
+            guard let self, !notes.drain().isEmpty else { return }
+            self.finish(interrupted: true)
+        }
+        source.setCancelHandler { notes.close() }
+        noteSource = source
+        source.resume()
+        signal(SIGINT, SIG_IGN)
+        signal(SIGTERM, SIG_IGN)
+
         // Neither a vanished reader nor a background write on a `tostop` terminal
         // may end a session the user asked to last a fixed time: the frame writes
-        // tolerate failure instead.
+        // tolerate failure instead. Neither is relayed, so neither needs a note.
         signal(SIGPIPE, SIG_IGN)
         signal(SIGTTOU, SIG_IGN)
-
-        for sig in [SIGINT, SIGTERM] {
-            // Ignore the default disposition so the dispatch source is the sole handler.
-            signal(sig, SIG_IGN)
-            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
-            source.setEventHandler { [weak self] in self?.finish(interrupted: true) }
-            signalSources.append(source)
-            source.resume()
-        }
     }
 
     /// Ends the session when the watched process exits.
@@ -118,7 +132,7 @@ final class TimedSession: @unchecked Sendable {
             // resource or permission failure, not an ending. Reporting success
             // here would release the assertion and exit 0 while the process it was
             // asked to protect is still running.
-            failToWatch(error)
+            failToSupervise(error)
             return
         }
 
@@ -209,11 +223,11 @@ final class TimedSession: @unchecked Sendable {
         exit(interrupted ? 130 : 0)
     }
 
-    /// The watched process is alive but its exit cannot be reported, so the
-    /// session cannot do the one thing it exists for. Releases, says so, and exits
-    /// nonzero — a caller that reads exit codes must be able to tell this apart
-    /// from work that finished.
-    private func failToWatch(_ error: Error) {
+    /// The session cannot do the one thing it exists for: either the watched
+    /// process's exit cannot be reported, or this process cannot be signalled.
+    /// Releases, says so, and exits nonzero — a caller that reads exit codes must
+    /// be able to tell this apart from work that finished.
+    private func failToSupervise(_ error: Error) {
         guard !finished else { return }
         finished = true
 

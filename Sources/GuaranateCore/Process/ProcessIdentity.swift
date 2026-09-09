@@ -82,19 +82,26 @@ public struct SystemProcessInspector: ProcessInspecting {
         // Existence check. EPERM means the process exists but belongs to another
         // user, which is still watchable: the kernel only enforces credentials
         // on EVFILT_PROC when NOTE_EXITSTATUS is requested, and it never is.
-        if kill(pid, 0) != 0, errno == ESRCH {
-            throw ProcessLookupError.noSuchProcess(pid)
+        if kill(pid, 0) != 0 {
+            let code = errno
+            if code == ESRCH { throw ProcessLookupError.noSuchProcess(pid) }
+            guard code == EPERM else { throw ProcessLookupError.cannotWatch(pid, code: code) }
         }
 
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
-        let result = sysctl(&mib, u_int(mib.count), &info, &size, nil, 0)
-        // A dead pid yields success with a zero-length result, so the length is
-        // the real signal here.
-        guard result == 0, size > 0 else {
-            throw ProcessLookupError.noSuchProcess(pid)
+        // "Gone" and "could not tell" are different answers, and only the first
+        // one may end a watch session as though the work had finished. A dead pid
+        // yields success with a zero-length result, so the length is the signal
+        // for absence; a failed call is an operational error, whatever its cause.
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0 else {
+            let code = errno
+            throw code == ESRCH
+                ? ProcessLookupError.noSuchProcess(pid)
+                : ProcessLookupError.cannotWatch(pid, code: code)
         }
+        guard size > 0 else { throw ProcessLookupError.noSuchProcess(pid) }
 
         // A zombie has already exited and only lingers until its parent reaps it,
         // so `kill(pid, 0)` still succeeds for it. Watching one would hold the

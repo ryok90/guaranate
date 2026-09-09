@@ -58,6 +58,15 @@ final class SystemProcessInspectorTests: XCTestCase {
         }
     }
 
+    /// A process owned by another user is watchable: `kill(pid, 0)` reports `EPERM`
+    /// for it, which means "exists, not yours" — an existence answer, not a failure
+    /// to look it up. `launchd` is always pid 1 and always root's.
+    func testAcceptsAProcessOwnedByAnotherUser() throws {
+        let identity = try inspector.identity(of: 1)
+        XCTAssertEqual(identity.pid, 1)
+        XCTAssertGreaterThan(identity.startedAt, 0, "a running process has a start time")
+    }
+
     /// Watching ourselves would hold the assertion until we exit, which never
     /// happens while we are waiting for ourselves.
     func testRejectsOwnPID() {

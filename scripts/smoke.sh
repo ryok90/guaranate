@@ -614,7 +614,6 @@ echo "  ✓ ran to its deadline in the background, keystrokes left to the shell"
 echo
 echo "▸ Test 21: while (a stopped session is never stranded by a lost terminal)"
 reason21="$tag-while-orphaned"
-sentinel="SMOKE_ORPHAN_$$"
 # A stopped process cannot act on anything, so a paused session would hold the
 # assertion forever if nothing continued it. The kernel owes SIGHUP *and SIGCONT*
 # to a process group that becomes orphaned while stopped, which is exactly what a
@@ -623,9 +622,7 @@ sentinel="SMOKE_ORPHAN_$$"
 orphan_script="$(mktemp)"
 cat >"$orphan_script" <<ORPHAN
 set -m
-"$BIN" while --reason "$reason21" /bin/sh -c "trap '' HUP; $sentinel=1 exec sleep 6" &
-sleep 2
-kill -TSTP "-\$(pgrep -f '$sentinel' | head -1)"
+"$BIN" while --reason "$reason21" /bin/sh -c "trap '' HUP; sleep 3" &
 sleep 30
 ORPHAN
 script -q /dev/null /bin/bash --norc "$orphan_script" >/dev/null 2>&1 &
@@ -634,24 +631,49 @@ wait_for_assertion "$reason21" present || fail "assertion never appeared"
 session_pid=""
 for _ in $(seq 1 50); do
   session_pid="$(pgrep -f "reason $reason21" | head -1)"
-  [[ -n "$session_pid" && "$(ps -o state= -p "$session_pid" | tr -d ' ')" == T* ]] && break
+  [[ -n "$session_pid" ]] && break
   sleep 0.2
 done
 [[ -n "$session_pid" ]] || fail "could not find the session"
-[[ "$(ps -o state= -p "$session_pid" | tr -d ' ')" == T* ]] || fail "the session never stopped"
-# The terminal goes away: kill the pty owner, orphaning the stopped job.
+# The command's own pid, not a pattern match: it `exec`s, so its argv is its own
+# and carries nothing of Guaranate's. Its pid is its process group, being the
+# leader of one, which is what Ctrl+Z would signal.
+child_pid=""
+for _ in $(seq 1 50); do
+  child_pid="$(pgrep -P "$session_pid" | head -1)"
+  [[ -n "$child_pid" ]] && break
+  sleep 0.2
+done
+[[ -n "$child_pid" ]] || fail "could not find the command under the session"
+kill -TSTP "-$child_pid" 2>/dev/null || fail "could not stop the command's group"
+# Both halves stopped is the state under test: the command by the signal, the
+# session because it mirrors it.
+for _ in $(seq 1 50); do
+  [[ "$(ps -o state= -p "$child_pid" | tr -d ' ')" == T* \
+     && "$(ps -o state= -p "$session_pid" | tr -d ' ')" == T* ]] && break
+  sleep 0.2
+done
+[[ "$(ps -o state= -p "$child_pid" | tr -d ' ')" == T* ]] \
+  || fail "the command did not stop"
+[[ "$(ps -o state= -p "$session_pid" | tr -d ' ')" == T* ]] \
+  || fail "the session did not mirror the command's stop"
+assertion_present "$reason21" || fail "the assertion was dropped while the job was paused"
+# The terminal goes away: kill the pty owner, orphaning both stopped groups.
 kill -KILL "$extra_pid" 2>/dev/null || true
 wait "$extra_pid" 2>/dev/null || true
 extra_pid=""
 wait_for_assertion "$reason21" absent || fail "a stopped session held the assertion after losing its terminal"
-for _ in $(seq 1 50); do pgrep -f "$sentinel" >/dev/null || break; sleep 0.2; done
-if pgrep -f "$sentinel" >/dev/null; then
-  pkill -CONT -f "$sentinel" 2>/dev/null || true
-  pkill -KILL -f "$sentinel" 2>/dev/null || true
+# Liveness by pid: a SIGHUP-ignoring command left behind is exactly the orphan
+# this must never produce, and it would not answer to any pattern.
+for _ in $(seq 1 50); do kill -0 "$child_pid" 2>/dev/null || break; sleep 0.2; done
+if kill -0 "$child_pid" 2>/dev/null; then
+  kill -CONT "$child_pid" 2>/dev/null || true
+  kill -KILL "$child_pid" 2>/dev/null || true
   rm -f "$orphan_script"
   fail "the command was orphaned by the lost terminal"
 fi
 rm -f "$orphan_script"
+echo "  ✓ both halves stopped, assertion held while paused"
 echo "  ✓ the kernel's continue is enough: relayed, waited for, released"
 echo "  ✓ no orphan, no stale assertion"
 
@@ -682,6 +704,50 @@ status=0
   || fail "with the default disposition: wrapped exited $status, unwrapped $base_default"
 (( base_default == 143 )) || fail "expected the baseline command to die of SIGTERM, got $base_default"
 echo "  ✓ a default disposition still reaches the command (exit $base_default)"
+
+# --- Test 23: resuming a job re-decides who owns the terminal ------------------
+echo
+echo "▸ Test 23: while (fg takes the terminal back, bg leaves it with the shell)"
+# Ownership has to be re-decided on every resume: `fg` hands the terminal to the
+# command, `bg` keeps it for the shell. A session that assumes it still owns what
+# it owned before the pause takes the terminal away from the shell it was handed
+# back to, and keystrokes meant for the prompt go to a background job instead.
+#
+# This needs a shell that offers `fg`/`bg`, which a script cannot be: a
+# non-interactive shell blocks forever on a stopped foreground job. The probe does
+# what a shell does, without one — see scripts/job-control-probe.py.
+probe="$repo_root/scripts/job-control-probe.py"
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "  - skipped: python3 is unavailable to simulate job control"
+else
+  for mode in fg bg; do
+    reason23="$tag-while-$mode"
+    probe_out="$(mktemp)"
+    python3 "$probe" "$BIN" "$reason23" "$mode" /bin/sh -c 'sleep 10' >"$probe_out" 2>&1 || true
+    reading() { grep -o "$1=[0-9a-zA-Z+]*" "$probe_out" | head -1 | cut -d= -f2; }
+    shell_pgid="$(reading SHELL)"
+    command_pgid="$(reading COMMANDGROUP)"
+    foreground="$(reading FOREGROUND)"
+    [[ -n "$shell_pgid" && -n "$command_pgid" && -n "$foreground" ]] \
+      || fail "the $mode probe produced no reading: $(tr '\n' ' ' <"$probe_out")"
+    [[ "$(reading STOPPED_SESSION)" == T* ]] || fail "the session did not stop before $mode"
+    [[ "$(reading STOPPED_COMMAND)" == T* ]] || fail "the command did not stop before $mode"
+    grep -q "ALIVE=yes" "$probe_out" || fail "the command did not survive being resumed by $mode"
+    if [[ "$mode" == fg ]]; then
+      (( foreground == command_pgid )) \
+        || fail "fg did not hand the terminal to the command (foreground $foreground)"
+    else
+      (( foreground != command_pgid )) \
+        || fail "a backgrounded command took the terminal (foreground $foreground)"
+      (( foreground == shell_pgid )) \
+        || fail "the terminal left the shell: foreground $foreground, shell $shell_pgid"
+    fi
+    rm -f "$probe_out"
+    wait_for_assertion "$reason23" absent || fail "stale assertion '$reason23' left behind"
+  done
+  echo "  ✓ fg hands the terminal to the command, bg leaves it with the shell"
+  echo "  ✓ the command keeps running either way, no stale assertion"
+fi
 
 echo
 echo "✓ smoke test passed"

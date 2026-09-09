@@ -52,9 +52,22 @@ $ head -c 1 data.json    # the file holds the command's output, not Guaranate's
 {
 ```
 
-A reader that goes away cannot end the session either: with
-`guaranate while make | head -5`, `head` closing the pipe costs you the rest of
-the status output, not the build.
+In a pipeline the command reaches the reader directly, so a reader that goes away
+is the command's business, not the session's. `guaranate while yes | head -1` ends
+the way `yes | head -1` does: `head` closes the pipe, `yes` dies of `SIGPIPE`, and
+Guaranate reports it and propagates `141`.
+
+```console
+$ guaranate while yes | head -1
+🌿 Guaranate — staying awake while yes runs · System sleep prevented, display may sleep
+y
+✗ yes killed by SIGPIPE after 0s
+✓ Sleep-prevention assertion released
+```
+
+What a broken or closed stream can never do is end the session itself. Guaranate's
+own writes tolerate failure, so `guaranate while make > /dev/full` or a status line
+nobody is reading costs you the line — never the build, and never the assertion.
 
 ### Exit codes
 
@@ -91,8 +104,10 @@ which would make tools that treat a second interrupt as "force quit now"
 
 Signals sent to *Guaranate itself* — a CI cancel, a `kill -TERM` against its
 pid — are relayed to the command's whole process group, so the command's own
-children are torn down with it rather than left running behind a released
-assertion.
+children are signalled with it rather than left running behind a released
+assertion. What each process does with the signal is still its own business: a
+descendant that ignores or outlives `SIGTERM` keeps running, exactly as it would
+if you had started the command yourself.
 
 Either way, Guaranate waits for the command to actually exit before releasing
 the assertion. Both halves of that matter:
@@ -108,6 +123,12 @@ Ctrl+Z stops the whole job — the command, and Guaranate with it — so your sh
 reports it as stopped and `fg` resumes both halves together. The assertion is
 deliberately kept while the command is paused: a pause is not an ending, and the
 work is still there to come back to.
+
+A pause is not a hiding place either. A stopped process runs no code, so nothing
+can be relayed until it is continued; a `kill` against a paused session therefore
+ends it the way the kernel ends any stopped job, and the assertion goes with it.
+Closing the terminal on a stopped session is the case that matters: it can no
+longer be resumed, so it must not be able to hold your Mac awake either.
 
 ### Where the flags go
 

@@ -161,10 +161,14 @@ a completion summary — and Guaranate exits with the command's own exit code
 (`128 + signal` if it is killed by one, `127` if the command is not found, `126`
 if it is not executable). Ctrl+C and Ctrl+Z behave exactly as they would without
 Guaranate in front: an interrupt arrives once, and Ctrl+Z stops the whole job for
-`fg` to resume, assertion held while it is paused. Signals sent to Guaranate are
-relayed to the command's process group, so its children go down with it, and the
-assertion is released only once the command has exited. Guaranate's own start and
-completion lines go to stderr, so stdout carries the command's output alone.
+`fg` to resume, assertion held while it is paused — and a paused session still
+dies on a termination signal instead of holding the assertion out of reach.
+Signals sent to Guaranate are relayed to the command's whole process group, so its
+children are signalled with it rather than left behind, and the assertion is
+released only once the command has exited. Guaranate's own start and completion
+lines go to stderr, so stdout carries the command's output alone and `while` is
+safe in a pipeline: a reader that goes away reaches the command exactly as it
+would unwrapped, and never the session.
 
 Hold the assertion until an already-running process exits:
 

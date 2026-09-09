@@ -25,14 +25,9 @@ dated, versioned section.
 - `guaranate while <command>` holds the assertion for exactly as long as a
   command runs, then exits with the command's own exit code (`128 + signal` when
   a signal kills it, `127` when it is not found, `126` when it is not
-  executable). The command gets its own process group and the controlling
-  terminal, so Ctrl+C, Ctrl+Z, and stdin behave as they would without Guaranate
-  in front — an interrupt reaches the command once, and Ctrl+Z stops the whole
-  job with the assertion kept until `fg` resumes it. Signals sent to Guaranate
-  are relayed to the command's process group, so its children are torn down with
-  it. Stdout carries only the command's own output; Guaranate's start and
-  completion lines go to stderr. Guaranate's flags go before the command,
-  separated by an optional `--` (#33).
+  executable). Ctrl+C, Ctrl+Z, stdin, and pipelines behave as they would without
+  Guaranate in front, and stdout carries only the command's own output.
+  Guaranate's flags go before the command, separated by an optional `--` (#33).
 - `guaranate --watch <pid>` / `-w` holds the assertion until an already-running
   process exits, closing the `caffeinate -w` gap. It only observes — the watched
   process is never started, signaled, or killed, and Ctrl+C detaches and leaves
@@ -57,8 +52,8 @@ dated, versioned section.
   explicit spelling; `guaranate --help` lists the subcommands, with the duration
   options under `guaranate run --help` (#33).
 - A closed or unread output stream no longer ends a session: status output is
-  written best-effort, so `guaranate while make | head -5` keeps holding the
-  assertion and still reports the command's exit code (#33).
+  written best-effort, so a status line nobody reads costs the line and never the
+  assertion or the command's exit code (#33).
 - `GuaranateCore` API: `PowerAsserting.acquire(_:reason:)` is now
   `acquire(_:reason:onBehalfOf:)`, so watch sessions can attribute the assertion
   to the process being watched. Source-breaking for out-of-tree conformers (#33).

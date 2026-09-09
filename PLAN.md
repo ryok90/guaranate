@@ -119,9 +119,13 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     controlling terminal while it is still suspended, so a terminal interrupt
     reaches the command exactly once instead of once from the kernel and once from
     a relay. Signals arriving at Guaranate are relayed to the command's group, so
-    the command's own children are torn down with it instead of outliving a
-    released assertion. Ctrl+Z is mirrored so the whole job stops and `fg` resumes
-    it, with the assertion kept while the command is only paused.
+    the command's own children are signalled with it instead of outliving a
+    released assertion — a descendant that ignores a signal still survives, as it
+    would unwrapped. Ctrl+Z is mirrored so the whole job stops and `fg` resumes it,
+    with the assertion kept while the command is only paused; because a stopped
+    process can relay nothing, the termination signals get their default
+    dispositions back for the duration of the pause, so a `kill` or a closed
+    terminal can still end a session that would otherwise be unreachable.
   - The child also needs its inherited dispositions reset: the parent sets these
     signals to `SIG_IGN` so its dispatch sources are the sole handlers, and
     `SIG_IGN` survives `exec` — without `POSIX_SPAWN_SETSIGDEF` the child would be
@@ -153,10 +157,13 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     launch failures, inherited-`SIG_IGN` reset, process-group leadership of the
     command, suspended start, stop-versus-exit wait-status decoding, a group signal
     reaching the command's own children, rejection of an option-like command token,
-    display-name quoting/escaping, process identity and pid-reuse detection, plus
-    `scripts/smoke.sh` tests 3–11 against the real binary — which now also cover
-    process-group teardown, the terminal handoff under a pty, and job control.
-    Remaining: `until` calculation (blocked on `M2-T8`).
+    display-name quoting/escaping, process identity and pid-reuse detection,
+    synchronous exit registration, plus `scripts/smoke.sh` tests 3–19 against the
+    real binary — which now also cover process-group teardown, the terminal handoff
+    under a pty, job control including termination of a stopped session, stdout
+    purity, unreadable and closed output streams, a command killed before it is
+    resumed, and a `tostop` terminal. Remaining: `until` calculation (blocked on
+    `M2-T8`).
 - [x] `M2-T10` Hold the assertion until an already-running process exits.
   - Shipped as an option, `guaranate -w <pid>` / `--watch <pid>`, not the
     `watch <pid>` subcommand this task originally specified. #17 had rejected
@@ -171,13 +178,16 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     watched process; no stale assertion on any exit path; accepts `--reason`.
   - Beyond the original acceptance: plain `NOTE_EXIT` is requested and never
     `NOTE_EXITSTATUS`, because the kernel only enforces credentials when both are
-    set — so processes owned by other users can be watched. A `kill(pid, 0)`
-    pre-check is mandatory, not polish: libdispatch synthesizes a fake exit event
-    when registration fails with `ESRCH`, so an unused pid would otherwise report
-    "exited" and exit 0. Sessions bind to the `(pid, start-time)` pair so a
-    recycled pid cannot inherit the assertion, and the assertion carries
+    set — so processes owned by other users can be watched. Registration is done
+    directly against `kqueue` rather than through `DispatchSourceProcess`, which
+    registers asynchronously on libdispatch's manager queue: `EV_ADD` returning is
+    the only moment at which the watch is provably attached to the process that was
+    looked up, and the `(pid, start-time)` identity is therefore re-verified after
+    it, never before. `ESRCH` from registration is the "already gone" answer, so an
+    unused pid can never be reported as an exit. The assertion carries
     `kIOPMAssertionOnBehalfOfPID` so `pmset` names the watched process.
   - Refs: `Sources/GuaranateCore/Process/ProcessIdentity.swift`,
+    `Sources/GuaranateCore/Process/ProcessExitRegistrar.swift`,
     `Sources/GuaranateCLI/TimedSession.swift`, #33.
 
 Design note: the bare-duration root command and subcommands now coexist via a

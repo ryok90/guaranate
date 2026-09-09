@@ -317,14 +317,21 @@ Behavior:
 3. That handover is what makes Ctrl+C, Ctrl+Z, and stdin behave exactly as they
    would without Guaranate in front: an interrupt reaches the command once, not
    twice.
-4. Relay signals that arrive at Guaranate to the command's whole process group,
-   so the command's children are torn down with it.
+4. Relay signals that arrive at Guaranate to the command's whole process group, so
+   its own children are signalled with it rather than left running behind a
+   released assertion. What a process does with a signal stays its own business: a
+   descendant that ignores or survives one keeps running, exactly as it would
+   without Guaranate in front.
 5. Keep stdout for the command alone; Guaranate's own start and completion lines
    are diagnostics and belong on stderr, so `while` is safe in a pipeline. Status
    output must never be able to end a session either — a closed or unread stream
    costs a status line, never the assertion.
 6. Keep the assertion for the lifetime of the child process. A stopped command is
-   not a finished one, so the assertion is held while the job is paused.
+   not a finished one, so the assertion is held while the job is paused. A paused
+   session must stay reachable, though: a stopped process runs no code, so a
+   termination signal that arrives while it is paused has to take effect through
+   the kernel's own default action, never wait indefinitely for a resume that may
+   never come.
 7. Release the assertion once the child process has actually exited — a command
    must never keep running against a machine that has already been allowed to
    sleep.

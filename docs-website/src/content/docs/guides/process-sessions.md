@@ -33,11 +33,28 @@ and a two-line completion summary around whatever the command prints:
 
 ```console
 $ guaranate while sh -c 'echo building; sleep 1'
-🌿 Guaranate — staying awake while sh -c "echo building; sleep 1" runs · System sleep, display may sleep
+🌿 Guaranate — staying awake while sh -c "echo building; sleep 1" runs · System sleep prevented, display may sleep
 building
 ✓ sh -c "echo building; sleep 1" finished after 1s
 ✓ Sleep-prevention assertion released
 ```
+
+Those two bookends are Guaranate's, so they go to **stderr**. Stdout carries the
+command's own bytes and nothing else, which is what makes `while` safe in a
+pipeline or a redirect:
+
+```console
+$ guaranate while curl -s https://example.com/data.json > data.json
+🌿 Guaranate — staying awake while curl -s https://example.com/data.json runs · System sleep prevented, display may sleep
+✓ curl -s https://example.com/data.json finished after 2s
+✓ Sleep-prevention assertion released
+$ head -c 1 data.json    # the file holds the command's output, not Guaranate's
+{
+```
+
+A reader that goes away cannot end the session either: with
+`guaranate while make | head -5`, `head` closing the pipe costs you the rest of
+the status output, not the build.
 
 ### Exit codes
 
@@ -53,7 +70,7 @@ ways a command can fail to run:
 
 ```console
 $ guaranate while sh -c 'exit 7'
-🌿 Guaranate — staying awake while sh -c "exit 7" runs · System sleep, display may sleep
+🌿 Guaranate — staying awake while sh -c "exit 7" runs · System sleep prevented, display may sleep
 ✗ sh -c "exit 7" exited 7 after 0s
 ✓ Sleep-prevention assertion released
 $ echo $?
@@ -65,14 +82,32 @@ CI step without changing what the step reports.
 
 ### Signals
 
-`SIGINT` (Ctrl+C), `SIGTERM`, and `SIGHUP` are forwarded to the command, and
-Guaranate then waits for it to exit before releasing the assertion. Both halves
-of that matter:
+The command runs in a process group of its own and is handed the controlling
+terminal, so Ctrl+C, Ctrl+Z, and stdin behave exactly as they would if you had
+run the command without Guaranate in front. A terminal interrupt reaches the
+command once — delivered by the kernel to its whole group — and never twice,
+which would make tools that treat a second interrupt as "force quit now"
+(`docker compose`, many dev servers) do exactly that on your first keypress.
+
+Signals sent to *Guaranate itself* — a CI cancel, a `kill -TERM` against its
+pid — are relayed to the command's whole process group, so the command's own
+children are torn down with it rather than left running behind a released
+assertion.
+
+Either way, Guaranate waits for the command to actually exit before releasing
+the assertion. Both halves of that matter:
 
 - The command is never orphaned — Guaranate does not exit out from under work it
   started.
 - No exit path leaves a stale assertion behind, so your Mac is never left awake
   by a session whose command is already gone.
+
+### Pausing and resuming
+
+Ctrl+Z stops the whole job — the command, and Guaranate with it — so your shell
+reports it as stopped and `fg` resumes both halves together. The assertion is
+deliberately kept while the command is paused: a pause is not an ending, and the
+work is still there to come back to.
 
 ### Where the flags go
 
@@ -90,6 +125,17 @@ first argument could be mistaken for one of Guaranate's:
 ```bash
 guaranate while --display -- ./build.sh --release
 ```
+
+A token that looks like one of Guaranate's flags is never run as a program. A
+mistyped flag before the command is reported instead:
+
+```console
+$ guaranate while -w 1234
+Error: Unknown option '-w'. Guaranate's own flags go before the command; to run a program whose name starts with '-', put `--` first.
+```
+
+That exits `64`. `--` is how you run a program whose own name really does start
+with `-`: `guaranate while -- -w 1234` runs a program named `-w`.
 
 `while` takes `-d`/`--display`, `-s`/`--system`, and `-r`/`--reason <text>`, which
 mean exactly what they mean for a timed session, and `guaranate while --help`
@@ -158,7 +204,9 @@ Error: No process with pid 999999.
 ```
 
 That exits `64`. Pid `0`, a negative pid, and Guaranate's own pid are rejected
-the same way.
+the same way — and so is a process that has already exited but whose parent has
+not collected it yet: it still answers to its pid, but there is nothing left to
+wait for.
 
 A session is either timed or tied to a process, never both:
 

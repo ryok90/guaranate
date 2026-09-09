@@ -163,7 +163,7 @@ session in one line, stays out of the way, and reports the outcome when the
 command exits:
 
 ```text
-🌿 Guaranate — staying awake while pnpm build runs · System sleep, display may sleep
+🌿 Guaranate — staying awake while pnpm build runs · System sleep prevented, display may sleep
 <the command's own output, untouched>
 ✓ pnpm build finished after 47m 12s
 ✓ Sleep-prevention assertion released
@@ -302,30 +302,42 @@ guaranate while ssh ...
 ```
 
 A `--` separator is accepted and optional; it is only needed when the command's
-own first argument could be mistaken for one of Guaranate's flags.
+own first argument could be mistaken for one of Guaranate's flags. A leading
+token that looks like a flag is reported as an unknown option rather than run as
+a program; `--` is how you say you really mean a program whose name starts with
+`-`.
 
 This should be treated as a **flagship feature**, not a small convenience wrapper.
 
 Behavior:
 
 1. Acquire the requested assertion.
-2. Launch the child process, which inherits Guaranate's standard streams and
-   process group so it behaves exactly as it would if run directly.
-3. Keep the assertion for the lifetime of the child process.
-4. Forward relevant signals, and wait for the child to finish terminating before
-   releasing the assertion — a command must never keep running against a machine
-   that has already been allowed to sleep.
-5. Release the assertion when the child process exits.
-6. Exit with the child's exit code, or `128 + signal` when a signal killed it.
+2. Launch the child process, which inherits Guaranate's standard streams, leads a
+   process group of its own, and is given the controlling terminal.
+3. That handover is what makes Ctrl+C, Ctrl+Z, and stdin behave exactly as they
+   would without Guaranate in front: an interrupt reaches the command once, not
+   twice.
+4. Relay signals that arrive at Guaranate to the command's whole process group,
+   so the command's children are torn down with it.
+5. Keep stdout for the command alone; Guaranate's own start and completion lines
+   are diagnostics and belong on stderr, so `while` is safe in a pipeline. Status
+   output must never be able to end a session either — a closed or unread stream
+   costs a status line, never the assertion.
+6. Keep the assertion for the lifetime of the child process. A stopped command is
+   not a finished one, so the assertion is held while the job is paused.
+7. Release the assertion once the child process has actually exited — a command
+   must never keep running against a machine that has already been allowed to
+   sleep.
+8. Exit with the child's exit code, or `128 + signal` when a signal killed it.
    A command that cannot be found exits 127; one that cannot be executed exits
    126, matching every POSIX shell.
-7. Never leave a stale assertion behind.
+9. Never leave a stale assertion behind.
 
 Example:
 
 ```text
 $ guaranate while pnpm build
-🌿 Guaranate — staying awake while pnpm build runs · System sleep, display may sleep
+🌿 Guaranate — staying awake while pnpm build runs · System sleep prevented, display may sleep
 <pnpm build's own output>
 ```
 
@@ -363,7 +375,9 @@ Behavior:
 2. Hold it until the named process exits, then release and exit 0.
 3. Only observe: never start, signal, or kill the watched process. Interrupting
    Guaranate detaches from it and leaves it running.
-4. Refuse a process id that is not in use, rather than silently succeeding.
+4. Refuse a process id that is not in use, or that names a process which has
+   already exited and is only waiting to be collected, rather than silently
+   succeeding.
 5. Survive process-id reuse: a recycled id must never inherit the assertion.
 
 A process belonging to another user can be watched, and the assertion should be

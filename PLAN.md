@@ -104,10 +104,9 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
   - Acceptance: launch a command with argv; observe exit; testable without a real long-running process.
   - Shipped as `ChildLaunching` (protocol) + `ChildProcess` (`posix_spawnp`), with
     `CommandInvocation` and `ExitStatus` as pure, separately-testable pieces.
-    Foundation `Process` was rejected: it always sets `POSIX_SPAWN_SETPGROUP`, so
-    the child lands in its own process group where a terminal Ctrl+C never reaches
-    it, and it never exposes the raw wait status needed to tell `exit(9)` from
-    death by `SIGKILL`.
+    Foundation `Process` was rejected: it never exposes the raw wait status needed
+    to tell `exit(9)` from death by `SIGKILL`, it reaps the child itself, and it
+    cannot start a child suspended.
   - Refs: `Sources/GuaranateCore/Process/*`.
 - [x] `M2-T2` `while` command: acquire → launch child → hold for child lifetime → release on exit.
   - Acceptance: `guaranate while sleep 30` holds the assertion for exactly the child's lifetime.
@@ -116,6 +115,13 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
   - Refs: `Sources/GuaranateCLI/Commands/WhileCommand.swift`, `Sources/GuaranateCLI/ProcessSession.swift`.
 - [x] `M2-T3` Signal forwarding to the child (SIGINT/SIGTERM/SIGHUP).
   - Acceptance: Ctrl+C reaches the child; child is not orphaned; parent waits for child teardown.
+  - Shipped design: the command leads its own process group and is handed the
+    controlling terminal while it is still suspended, so a terminal interrupt
+    reaches the command exactly once instead of once from the kernel and once from
+    a relay. Signals arriving at Guaranate are relayed to the command's group, so
+    the command's own children are torn down with it instead of outliving a
+    released assertion. Ctrl+Z is mirrored so the whole job stops and `fg` resumes
+    it, with the assertion kept while the command is only paused.
   - The child also needs its inherited dispositions reset: the parent sets these
     signals to `SIG_IGN` so its dispatch sources are the sole handlers, and
     `SIG_IGN` survives `exec` — without `POSIX_SPAWN_SETSIGDEF` the child would be
@@ -144,9 +150,13 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
   - Refs: spec "Run until a clock time".
 - [~] `M2-T9` Tests: child monitoring, signal forwarding, exit-code propagation, `until` calculation.
   - Shipped: exit-status decoding, argv normalization, `PATH` resolution, 127/126
-    launch failures, inherited-`SIG_IGN` reset, process-group inheritance, process
-    identity and pid-reuse detection, plus `scripts/smoke.sh` tests 3–8 against the
-    real binary. Remaining: `until` calculation (blocked on `M2-T8`).
+    launch failures, inherited-`SIG_IGN` reset, process-group leadership of the
+    command, suspended start, stop-versus-exit wait-status decoding, a group signal
+    reaching the command's own children, rejection of an option-like command token,
+    display-name quoting/escaping, process identity and pid-reuse detection, plus
+    `scripts/smoke.sh` tests 3–11 against the real binary — which now also cover
+    process-group teardown, the terminal handoff under a pty, and job control.
+    Remaining: `until` calculation (blocked on `M2-T8`).
 - [x] `M2-T10` Hold the assertion until an already-running process exits.
   - Shipped as an option, `guaranate -w <pid>` / `--watch <pid>`, not the
     `watch <pid>` subcommand this task originally specified. #17 had rejected

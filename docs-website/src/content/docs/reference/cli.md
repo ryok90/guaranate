@@ -66,9 +66,9 @@ guaranate run [<duration>] [--watch <pid>] [--display] [--system] [--reason <tex
 
 Stay awake for exactly as long as a command runs.
 
-The command keeps this terminal: its output and input pass straight through, and guaranate exits with the command's own exit code — or 128 + signal number if it is killed by a signal.
+The command gets this terminal and a process group of its own: its output and input pass straight through, Ctrl+C and Ctrl+Z reach it exactly as they would without guaranate in front, and guaranate exits with the command's own exit code — or 128 + signal number if it is killed by a signal. Stdout carries only the command's output; guaranate's own lines go to stderr.
 
-Guaranate's own flags belong before the command. Everything from the first non-flag token onwards is handed to the command untouched, so use `--` when the command's first argument could be mistaken for one of ours:
+Guaranate's own flags belong before the command. Everything from the first non-flag token onwards is handed to the command untouched; a leading token that looks like a flag is reported rather than run, so use `--` when the command's own name or first argument could be mistaken for one of ours:
 
 ```text
 guaranate while npm test

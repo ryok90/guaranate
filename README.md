@@ -26,7 +26,8 @@ The name is a play on **guaraná**, the Brazilian stimulant, and Apple's
 
 **v0.1 — native CLI foundation.** Timed sessions and process-lifetime sessions
 work end-to-end. The broader surface (`until`, `status`, `why`, external leases)
-is planned and tracked in [`PLAN.md`](PLAN.md).
+is planned and tracked in [`PLAN.md`](PLAN.md). Rows marked *unreleased* are on
+`main` and ship in the next release.
 
 | Feature | State |
 | --- | --- |
@@ -36,8 +37,8 @@ is planned and tracked in [`PLAN.md`](PLAN.md).
 | Elapsed / remaining / end-time display | ✅ shipped |
 | Ctrl+C / SIGTERM cleanup, no stale assertion | ✅ shipped |
 | Non-TTY-friendly output | ✅ shipped |
-| `guaranate while <cmd>` for a command's lifetime | ✅ shipped |
-| `guaranate --watch <pid>` for a running process | ✅ shipped |
+| `guaranate while <cmd>` for a command's lifetime | ✅ unreleased |
+| `guaranate --watch <pid>` for a running process | ✅ unreleased |
 | `guaranate until <HH:MM>` | 🔜 v0.2 |
 | `status` / `why` / `--json` | 🔜 v0.3 |
 | `acquire` / `renew` / `release` leases | 🔜 v0.4 |
@@ -151,13 +152,19 @@ guaranate while ./build.sh --release
 guaranate while --display -- ./deploy.sh   # flags go before the command
 ```
 
-The command inherits the terminal — its output passes straight through, so
-there is no live frame, just a start line and a completion summary — and
-Guaranate exits with the command's own exit code (`128 + signal` if it is
-killed by one, `127` if the command is not found, `126` if it is not
-executable). Ctrl+C, `SIGTERM`, and `SIGHUP` are forwarded to the command, and
-the assertion is released only once it has exited, so the command is never
-orphaned and no stale assertion is left behind.
+A mistyped flag before the command is reported as an unknown option rather than
+run as a program; `--` is required for a program whose own name starts with `-`.
+
+The command gets its own process group and the controlling terminal — its output
+and input pass straight through, so there is no live frame, just a start line and
+a completion summary — and Guaranate exits with the command's own exit code
+(`128 + signal` if it is killed by one, `127` if the command is not found, `126`
+if it is not executable). Ctrl+C and Ctrl+Z behave exactly as they would without
+Guaranate in front: an interrupt arrives once, and Ctrl+Z stops the whole job for
+`fg` to resume, assertion held while it is paused. Signals sent to Guaranate are
+relayed to the command's process group, so its children go down with it, and the
+assertion is released only once the command has exited. Guaranate's own start and
+completion lines go to stderr, so stdout carries the command's output alone.
 
 Hold the assertion until an already-running process exits:
 

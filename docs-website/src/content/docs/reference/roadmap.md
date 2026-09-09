@@ -27,6 +27,9 @@ intent lives in
 | `guaranate while <cmd>` | [Wrapping a command](/guides/process-sessions/#wrapping-a-command) |
 | `guaranate --watch <pid>` | [Watching a process that already runs](/guides/process-sessions/#watching-a-process-that-already-runs) |
 
+`guaranate while <cmd>` and `guaranate --watch <pid>` are on `main` and ship in
+the next release; everything above them is in v0.1.0.
+
 ## Planned
 
 Not yet implemented. Listed so you can tell what is coming — and what to not

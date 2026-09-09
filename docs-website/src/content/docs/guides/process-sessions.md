@@ -65,6 +65,11 @@ y
 ✓ Sleep-prevention assertion released
 ```
 
+"The way `yes | head -1` does" is the whole promise, including when that differs:
+run from a shell that ignores `SIGPIPE` — some CI runners do — the command gets
+`EPIPE` from the failed write and exits `1` instead. Wrapped or not, the outcome is
+the same, because Guaranate leaves the caller's dispositions alone.
+
 What a broken or closed stream can never do is end the session itself. Guaranate's
 own writes tolerate failure, so `guaranate while make > /dev/full` or a status line
 nobody is reading costs you the line — never the build, and never the assertion.

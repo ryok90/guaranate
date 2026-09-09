@@ -536,16 +536,26 @@ echo
 echo "▸ Test 18: while (a pipe closing early reaches the command, not the session)"
 reason18="$tag-while-pipe"
 err_file="$(mktemp)"
+# Measured against the unwrapped pipeline rather than a fixed code, because the
+# right answer depends on the caller: with the default disposition the command dies
+# of SIGPIPE (141), and under a caller that ignores SIGPIPE — CI runners commonly do
+# — the write fails with EPIPE instead (1). Guaranate preserves whichever the
+# command would have had, so the contract is "the same as without it in front".
 set +e
+yes 2>/dev/null | head -1 >/dev/null
+baseline="${PIPESTATUS[0]}"
 "$BIN" while --reason "$reason18" yes 2>"$err_file" | head -1 >/dev/null
 status="${PIPESTATUS[0]}"
 set -e
-(( status == 141 )) || fail "expected the command's own 141 from SIGPIPE, got $status"
+(( status == baseline )) \
+  || fail "wrapped pipeline exited $status where the unwrapped one exited $baseline"
+(( baseline != 0 )) || fail "the baseline pipeline did not report a broken pipe at all"
 grep -q "staying awake" "$err_file" || fail "the start line was lost with the pipe"
 grep -q "assertion released" "$err_file" || fail "the release line was lost with the pipe"
 rm -f "$err_file"
 wait_for_assertion "$reason18" absent || fail "stale assertion '$reason18' left behind"
-echo "  ✓ the command died on SIGPIPE as it would unwrapped, status output intact"
+echo "  ✓ the broken pipe reached the command exactly as unwrapped (exit $baseline)"
+echo "  ✓ status output intact, no stale assertion"
 
 # --- Test 19: a `tostop` terminal must not stop the session --------------------
 echo
@@ -648,18 +658,30 @@ echo "  ✓ no orphan, no stale assertion"
 # --- Test 22: dispositions the caller chose are the command's, not ours ---------
 echo
 echo "▸ Test 22: while (a signal the caller ignores stays ignored in the command)"
-# Unwrapped baseline first: an inherited SIG_IGN survives a self-sent signal.
-/bin/sh -c "trap '' TERM; kill -TERM \$\$; exit 0" || fail "baseline shell did not survive its own SIGTERM"
+# Both halves are measured against the same command run without Guaranate, so the
+# contract under test is fidelity itself rather than a particular exit code.
+base_ignored=0
+( trap '' TERM
+  /bin/sh -c "kill -TERM \$\$; exit 0" ) || base_ignored=$?
 status=0
 ( trap '' TERM
   "$BIN" while --reason "$tag-inherit" /bin/sh -c "kill -TERM \$\$; exit 0" 2>/dev/null ) || status=$?
-(( status == 0 )) \
-  || fail "an inherited ignored SIGTERM was reset in the command (exit $status, expected 0)"
-# And a signal the caller did *not* ignore must still reach the command.
+(( status == base_ignored )) \
+  || fail "with SIGTERM ignored by the caller: wrapped exited $status, unwrapped $base_ignored"
+(( base_ignored == 0 )) \
+  || fail "the baseline command did not survive a SIGTERM its caller ignores (exit $base_ignored)"
+echo "  ✓ an inherited ignore is the caller's choice, and survives the wrapper"
+
+# And a disposition Guaranate did take over must still be reset, so the command is
+# not left deaf to a signal it would have received.
+base_default=0
+/bin/sh -c "kill -TERM \$\$; exit 0" || base_default=$?
 status=0
 "$BIN" while --reason "$tag-inherit-dfl" /bin/sh -c "kill -TERM \$\$; exit 0" 2>/dev/null || status=$?
-(( status == 143 )) || fail "a default-disposition SIGTERM did not reach the command (exit $status)"
-echo "  ✓ inherited ignores are preserved, default dispositions still reset"
+(( status == base_default )) \
+  || fail "with the default disposition: wrapped exited $status, unwrapped $base_default"
+(( base_default == 143 )) || fail "expected the baseline command to die of SIGTERM, got $base_default"
+echo "  ✓ a default disposition still reaches the command (exit $base_default)"
 
 echo
 echo "✓ smoke test passed"

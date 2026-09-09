@@ -19,12 +19,10 @@ final class ProcessSession: @unchecked Sendable {
     /// Signals relayed to the command's process group when they arrive here.
     static let forwardedSignals: [Int32] = [SIGINT, SIGTERM, SIGHUP]
 
-    /// Signals whose disposition this process changes, and which therefore have
-    /// to be restored to their defaults in the child: `SIG_IGN` is inherited
-    /// across `exec`, so without the reset the command would be deaf to Ctrl+C —
-    /// and, for `SIGPIPE` and `SIGTTOU`, would keep this process's tolerance for
-    /// a vanished reader or a background write that should have stopped it.
-    static let signalsResetInChild: [Int32] = forwardedSignals + [SIGCONT, SIGPIPE, SIGTTOU]
+    /// Signals whose disposition this process took over and must therefore restore
+    /// in the child, recorded as they are taken so an inherited `SIG_IGN` is never
+    /// undone. See `take(_:)`.
+    private var signalsToResetInChild: [Int32] = []
 
     private let invocation: CommandInvocation
     private let assertionType: PowerAssertionType
@@ -74,7 +72,7 @@ final class ProcessSession: @unchecked Sendable {
 
         let pid: pid_t
         do {
-            pid = try child.launch(invocation, resettingSignals: Self.signalsResetInChild)
+            pid = try child.launch(invocation, resettingSignals: signalsToResetInChild)
         } catch let error as ChildLaunchError {
             fail(error)
         }
@@ -93,7 +91,18 @@ final class ProcessSession: @unchecked Sendable {
         // own can interleave.
         renderer.renderProcessStart(command: invocation.displayName, type: assertionType)
         terminal = TerminalForeground()
-        terminal?.give(to: pid)
+        if let owned = terminal, !owned.give(to: pid) {
+            // Owning the terminal but being refused the handover is not silent, and
+            // not fatal either: the command runs in a background group, where only
+            // reading stdin would stop it — and a `fg` after that stop re-hands the
+            // terminal, which is the same recovery Ctrl+Z already uses. Ownership is
+            // dropped so teardown does not claim back something never handed over.
+            renderer.renderDiagnostic(
+                "could not hand the terminal to \(invocation.displayName): "
+                    + String(cString: strerror(errno))
+            )
+            terminal = nil
+        }
 
         // Consume the initial suspension so it can never be misread as a Ctrl+Z —
         // and honor it if the command was killed while it was still suspended,
@@ -151,17 +160,17 @@ final class ProcessSession: @unchecked Sendable {
         guard !stopped else { return }
         stopped = true
         terminal?.restore()
-        // A stopped process runs no code, so the dispatch sources cannot relay
-        // anything until something continues this one. Leaving termination
-        // signals ignored across a stop would make `kill` and a closed terminal
-        // silently do nothing — a paused session holding the assertion with no
-        // way left to reach it. The kernel's default action is the only thing
-        // that still works from here, so it gets the signals back for exactly as
-        // long as the pause lasts. That is also what would happen without
-        // Guaranate in front, and it is safe: the command's group is stopped at
-        // this point, so it is torn down by the `SIGHUP`/`SIGCONT` the kernel
-        // owes an orphaned stopped group, and the assertion goes with the process.
-        for sig in Self.forwardedSignals { signal(sig, SIG_DFL) }
+        // Termination signals stay ignored across the pause, so they stay this
+        // process's to relay. A stopped process runs no code, so one that arrives
+        // now is only acted on once something continues this one — which is what
+        // every path that can strand a paused job already does: `fg` and `bg`
+        // continue it, POSIX `kill %job` sends `SIGCONT` alongside the signal, and
+        // a process group that becomes orphaned while stopped is owed `SIGHUP` and
+        // `SIGCONT` by the kernel, which is what happens when the terminal goes
+        // away. Handing the signals back to the kernel instead would end this
+        // process without relaying anything, orphaning a command that ignores
+        // `SIGHUP` — a running command behind a released assertion, which is the
+        // one outcome that must never happen.
         kill(getpid(), SIGSTOP)
     }
 
@@ -169,8 +178,6 @@ final class ProcessSession: @unchecked Sendable {
     private func resumeAfterStop() {
         guard let childPID, stopped else { return }
         stopped = false
-        // Relaying is possible again, so take the signals back from the kernel.
-        for sig in Self.forwardedSignals { signal(sig, SIG_IGN) }
         // Ownership is re-evaluated: a job that started in the background never
         // held the terminal, but `fg` has just handed it to us.
         if terminal == nil { terminal = TerminalForeground() }
@@ -189,13 +196,13 @@ final class ProcessSession: @unchecked Sendable {
         // command gets both dispositions back, so it still dies on a broken pipe
         // and still stops on a background write, exactly as if it were run
         // directly.
-        signal(SIGPIPE, SIG_IGN)
-        signal(SIGTTOU, SIG_IGN)
+        take(SIGPIPE)
+        take(SIGTTOU)
 
         for sig in Self.forwardedSignals + [SIGCONT] {
             // Ignore the default disposition so the dispatch source is the sole
             // handler; the child gets the default back via POSIX_SPAWN_SETSIGDEF.
-            signal(sig, SIG_IGN)
+            take(sig)
             let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
             source.setEventHandler { [weak self] in
                 guard let self else { return }
@@ -203,6 +210,27 @@ final class ProcessSession: @unchecked Sendable {
             }
             signalSources.append(source)
             source.resume()
+        }
+    }
+
+    /// Takes a signal over from the kernel, and records whether the command will
+    /// need its default disposition restored.
+    ///
+    /// `SIG_IGN` is inherited across `exec`, so every signal this process ignores
+    /// has to be reset in the child or the command would be deaf to it. Every
+    /// signal — except one the surrounding shell was *already* ignoring: that
+    /// disposition is inherited too, and the command would have inherited it
+    /// without Guaranate in front. Resetting those would make a wrapped command
+    /// die where the same command run directly survives.
+    private func take(_ sig: Int32) {
+        let previous = signal(sig, SIG_IGN)
+        // Dispositions are C function pointers, which Swift will not compare
+        // directly; `SIG_IGN` and `SIG_DFL` are sentinel addresses, so the bit
+        // patterns are the comparison.
+        let wasIgnored = unsafeBitCast(previous, to: UInt.self)
+            == unsafeBitCast(SIG_IGN, to: UInt.self)
+        if !wasIgnored {
+            signalsToResetInChild.append(sig)
         }
     }
 
@@ -306,15 +334,25 @@ private struct TerminalForeground {
         self.previous = foreground
     }
 
-    func give(to pgid: pid_t) {
+    /// Hands the terminal to `pgid`, reporting whether the kernel accepted it.
+    ///
+    /// A silently failed handover is the worst outcome available: the command would
+    /// run in a background process group, where reading stdin stops it with
+    /// `SIGTTIN` instead of working the way the same command works unwrapped.
+    @discardableResult
+    func give(to pgid: pid_t) -> Bool {
         // `tcsetpgrp` from a background process group raises `SIGTTOU` at the
         // caller — which is exactly the situation when handing the terminal back.
         let previousDisposition = signal(SIGTTOU, SIG_IGN)
-        tcsetpgrp(fd, pgid)
-        signal(SIGTTOU, previousDisposition)
+        defer { signal(SIGTTOU, previousDisposition) }
+        while true {
+            if tcsetpgrp(fd, pgid) == 0 { return true }
+            guard errno == EINTR else { return false }
+        }
     }
 
-    func restore() {
+    @discardableResult
+    func restore() -> Bool {
         give(to: previous)
     }
 }

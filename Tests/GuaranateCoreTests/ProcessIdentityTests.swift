@@ -87,7 +87,11 @@ final class SystemProcessInspectorTests: XCTestCase {
             }
             if !isZombie { usleep(5_000) }
         }
-        try XCTSkipUnless(isZombie, "could not observe \(pid) as a zombie")
+        // Never a skip: on the platform this tool targets, a fixture that cannot be
+        // observed means the contract went untested, which has to fail the suite
+        // rather than pass it quietly.
+        XCTAssertTrue(isZombie, "could not observe \(pid) as a zombie within 5s")
+        guard isZombie else { return }
 
         XCTAssertEqual(kill(pid, 0), 0, "a zombie still exists as far as kill(2) is concerned")
         XCTAssertThrowsError(try inspector.identity(of: pid)) { error in

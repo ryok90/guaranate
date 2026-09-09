@@ -108,10 +108,17 @@ final class TimedSession: @unchecked Sendable {
         let descriptor: Int32
         do {
             descriptor = try registrar.registerExit(of: watching)
-        } catch {
-            // Already gone, or unwatchable: the work this session was held for is
-            // over either way, and the assertion must not outlive it.
+        } catch ProcessLookupError.noSuchProcess {
+            // The work ended inside the startup window: that is a finished
+            // session, and the assertion must not outlive it.
             finish(interrupted: false)
+            return
+        } catch {
+            // Anything else means the kernel would not report the exit — a
+            // resource or permission failure, not an ending. Reporting success
+            // here would release the assertion and exit 0 while the process it was
+            // asked to protect is still running.
+            failToWatch(error)
             return
         }
 
@@ -200,5 +207,29 @@ final class TimedSession: @unchecked Sendable {
 
         // SIGINT conventionally maps to 128 + signal number.
         exit(interrupted ? 130 : 0)
+    }
+
+    /// The watched process is alive but its exit cannot be reported, so the
+    /// session cannot do the one thing it exists for. Releases, says so, and exits
+    /// nonzero — a caller that reads exit codes must be able to tell this apart
+    /// from work that finished.
+    private func failToWatch(_ error: Error) {
+        guard !finished else { return }
+        finished = true
+
+        renderTimer?.cancel()
+        renderTimer = nil
+        keyboardSource?.cancel()
+        keyboardSource = nil
+        restoreTerminal()
+
+        if let token {
+            power.release(token)
+            self.token = nil
+        }
+
+        renderer.renderDiagnostic("\(error)")
+        // EX_OSERR: the request was valid, the system could not carry it out.
+        exit(71)
     }
 }

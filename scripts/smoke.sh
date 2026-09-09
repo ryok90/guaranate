@@ -171,8 +171,14 @@ echo "  ✓ no stale assertion after any of them"
 echo
 echo "▸ Test 5: while + SIGINT (command interrupted, exit 130, clean release)"
 reason5="$tag-while-sigint"
+# Job control is deliberate: a shell without it makes background children immune
+# to SIGINT by ignoring it in them, and Guaranate now preserves that inherited
+# disposition rather than overriding the caller (test 22). This is therefore the
+# interactive context — the one where an interrupt is supposed to reach the work.
+set -m
 "$BIN" while --reason "$reason5" /bin/sleep 30 >/dev/null 2>&1 &
 child_pid=$!
+set +m
 
 wait_for_assertion "$reason5" present || fail "assertion '$reason5' never appeared in pmset"
 command_pid="$(pgrep -P "$child_pid" || true)"
@@ -446,11 +452,13 @@ else
   echo "  · skipped: /usr/bin/perl is unavailable to create a zombie"
 fi
 
-# --- Test 15: terminating a stopped session ------------------------------------
+# --- Test 15: terminating a stopped session, without orphaning the command ------
 echo
-echo "▸ Test 15: while + SIGTERM while the job is stopped (a pause is not a hiding place)"
+echo "▸ Test 15: while + SIGTERM while the job is stopped (relayed, never orphaned)"
 reason15="$tag-while-stopped-term"
-"$BIN" while --reason "$reason15" /bin/sh -c 'sleep 30' 2>/dev/null &
+# The command ignores SIGHUP, so nothing but Guaranate's own relay can end it:
+# that is what makes this a no-orphan test and not a kernel-cleanup test.
+"$BIN" while --reason "$reason15" /bin/sh -c "trap '' HUP; sleep 30" 2>/dev/null &
 child_pid=$!
 wait_for_assertion "$reason15" present || fail "assertion never appeared"
 command_pid="$(pgrep -P "$child_pid" | head -1)"
@@ -463,17 +471,27 @@ for _ in $(seq 1 30); do
 done
 [[ "$(ps -o state= -p "$child_pid" | tr -d ' ')" == T* ]] || fail "Guaranate did not mirror the stop"
 assertion_present "$reason15" || fail "the assertion was dropped while the command was paused"
-# A stopped supervisor runs no code, so this has to work through the kernel's own
-# default action — otherwise the session is unreachable and holds the assertion.
+echo "  ✓ the assertion is held while both halves are stopped"
+
+# A stopped process runs no code, so the signal waits for the continue that every
+# real path supplies — `fg`, `bg`, POSIX `kill %job`, or the kernel itself when the
+# group is orphaned. What must never happen is the session dying without relaying,
+# which would leave this SIGHUP-proof command running behind a released assertion.
 kill -TERM "$child_pid"
+sleep 0.5
+[[ "$(ps -o state= -p "$child_pid" | tr -d ' ')" == T* ]] \
+  || fail "the session acted on a signal while it was stopped, without relaying"
+assertion_present "$reason15" || fail "the assertion was released while the command still ran"
+kill -CONT "$child_pid"                 # what `kill %job` and `fg` do for you
 status=0
 wait "$child_pid" 2>/dev/null || status=$?
+(( status == 143 )) || fail "expected 143 after the relayed SIGTERM, got $status"
 for _ in $(seq 1 50); do kill -0 "$command_pid" 2>/dev/null || break; sleep 0.1; done
 kill -0 "$command_pid" 2>/dev/null && fail "the command outlived the terminated session"
 child_pid=""
 wait_for_assertion "$reason15" absent || fail "stale assertion '$reason15' left behind"
-echo "  ✓ a stopped session still dies on SIGTERM, taking the command with it"
-echo "  ✓ no stale assertion"
+echo "  ✓ once continued, the signal is relayed and a SIGHUP-proof command still dies"
+echo "  ✓ exit 143, no orphan, no stale assertion"
 
 # --- Test 16: a command killed while it is still suspended ---------------------
 echo
@@ -581,6 +599,67 @@ grep -q "RC=0" "$bg_out" || fail "a backgrounded timed session did not exit 0"
 rm -f "$bg_out"
 wait_for_assertion "$reason20" absent || fail "stale assertion '$reason20' left behind"
 echo "  ✓ ran to its deadline in the background, keystrokes left to the shell"
+
+# --- Test 21: a stopped job whose terminal disappears --------------------------
+echo
+echo "▸ Test 21: while (a stopped session is never stranded by a lost terminal)"
+reason21="$tag-while-orphaned"
+sentinel="SMOKE_ORPHAN_$$"
+# A stopped process cannot act on anything, so a paused session would hold the
+# assertion forever if nothing continued it. The kernel owes SIGHUP *and SIGCONT*
+# to a process group that becomes orphaned while stopped, which is exactly what a
+# closing terminal produces — and the command ignores SIGHUP, so only Guaranate's
+# own relay and its wait can end this cleanly.
+orphan_script="$(mktemp)"
+cat >"$orphan_script" <<ORPHAN
+set -m
+"$BIN" while --reason "$reason21" /bin/sh -c "trap '' HUP; $sentinel=1 exec sleep 6" &
+sleep 2
+kill -TSTP "-\$(pgrep -f '$sentinel' | head -1)"
+sleep 30
+ORPHAN
+script -q /dev/null /bin/bash --norc "$orphan_script" >/dev/null 2>&1 &
+extra_pid=$!
+wait_for_assertion "$reason21" present || fail "assertion never appeared"
+session_pid=""
+for _ in $(seq 1 50); do
+  session_pid="$(pgrep -f "reason $reason21" | head -1)"
+  [[ -n "$session_pid" && "$(ps -o state= -p "$session_pid" | tr -d ' ')" == T* ]] && break
+  sleep 0.2
+done
+[[ -n "$session_pid" ]] || fail "could not find the session"
+[[ "$(ps -o state= -p "$session_pid" | tr -d ' ')" == T* ]] || fail "the session never stopped"
+# The terminal goes away: kill the pty owner, orphaning the stopped job.
+kill -KILL "$extra_pid" 2>/dev/null || true
+wait "$extra_pid" 2>/dev/null || true
+extra_pid=""
+wait_for_assertion "$reason21" absent || fail "a stopped session held the assertion after losing its terminal"
+for _ in $(seq 1 50); do pgrep -f "$sentinel" >/dev/null || break; sleep 0.2; done
+if pgrep -f "$sentinel" >/dev/null; then
+  pkill -CONT -f "$sentinel" 2>/dev/null || true
+  pkill -KILL -f "$sentinel" 2>/dev/null || true
+  rm -f "$orphan_script"
+  fail "the command was orphaned by the lost terminal"
+fi
+rm -f "$orphan_script"
+echo "  ✓ the kernel's continue is enough: relayed, waited for, released"
+echo "  ✓ no orphan, no stale assertion"
+
+# --- Test 22: dispositions the caller chose are the command's, not ours ---------
+echo
+echo "▸ Test 22: while (a signal the caller ignores stays ignored in the command)"
+# Unwrapped baseline first: an inherited SIG_IGN survives a self-sent signal.
+/bin/sh -c "trap '' TERM; kill -TERM \$\$; exit 0" || fail "baseline shell did not survive its own SIGTERM"
+status=0
+( trap '' TERM
+  "$BIN" while --reason "$tag-inherit" /bin/sh -c "kill -TERM \$\$; exit 0" 2>/dev/null ) || status=$?
+(( status == 0 )) \
+  || fail "an inherited ignored SIGTERM was reset in the command (exit $status, expected 0)"
+# And a signal the caller did *not* ignore must still reach the command.
+status=0
+"$BIN" while --reason "$tag-inherit-dfl" /bin/sh -c "kill -TERM \$\$; exit 0" 2>/dev/null || status=$?
+(( status == 143 )) || fail "a default-disposition SIGTERM did not reach the command (exit $status)"
+echo "  ✓ inherited ignores are preserved, default dispositions still reset"
 
 echo
 echo "✓ smoke test passed"

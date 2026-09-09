@@ -40,6 +40,12 @@ public struct KqueueExitRegistrar: ProcessExitRegistering {
             throw ProcessLookupError.cannotWatch(identity.pid, code: errno)
         }
 
+        // One owner for the descriptor on every failing path: closing it twice
+        // could hit an unrelated descriptor that another thread opened onto the
+        // same number in between.
+        var handedOff = false
+        defer { if !handedOff { close(queue) } }
+
         var registration = kevent(
             ident: UInt(identity.pid),
             filter: Int16(EVFILT_PROC),
@@ -50,7 +56,6 @@ public struct KqueueExitRegistrar: ProcessExitRegistering {
         )
         guard kevent(queue, &registration, 1, nil, 0, nil) != -1 else {
             let code = errno
-            close(queue)
             // The process ended between the lookup and this call.
             throw code == ESRCH
                 ? ProcessLookupError.noSuchProcess(identity.pid)
@@ -60,16 +65,11 @@ public struct KqueueExitRegistrar: ProcessExitRegistering {
         // Verified *after* registration, never before: a check that precedes it
         // proves only what was true earlier, and the pid could have been recycled
         // in the gap. Passing here means the watch is attached to this process.
-        do {
-            guard try inspector.identity(of: identity.pid).isSameProcess(as: identity) else {
-                close(queue)
-                throw ProcessLookupError.noSuchProcess(identity.pid)
-            }
-        } catch {
-            close(queue)
-            throw error
+        guard try inspector.identity(of: identity.pid).isSameProcess(as: identity) else {
+            throw ProcessLookupError.noSuchProcess(identity.pid)
         }
 
+        handedOff = true
         return queue
     }
 }

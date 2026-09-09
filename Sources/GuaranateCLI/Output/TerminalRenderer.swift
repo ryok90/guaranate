@@ -272,11 +272,13 @@ final class TerminalRenderer: @unchecked Sendable {
 
     /// Reports a supervisor-level problem, prefixed the way a CLI names itself.
     ///
-    /// Goes through the same failure-tolerant write as every other line: a
-    /// diagnostic that cannot be printed must still leave the exit code intact,
-    /// because the code is what a script reads.
+    /// Always on stderr, whichever stream the frame uses: a diagnostic is not
+    /// output, and a `while` session's stdout belongs to the command. Goes through
+    /// the same failure-tolerant write as every other line, because a diagnostic
+    /// that cannot be printed must still leave the exit code intact — the code is
+    /// what a script reads.
     func renderDiagnostic(_ message: String) {
-        write("guaranate: \(message)\n")
+        write("guaranate: \(message)\n", to: STDERR_FILENO)
     }
 
     /// Writes with `write(2)` and ignores failures.
@@ -285,9 +287,9 @@ final class TerminalRenderer: @unchecked Sendable {
     /// raises on a closed descriptor, and a pipe whose reader has gone turns a
     /// write into `SIGPIPE`. Either would tear the supervisor down in the middle
     /// of the command it is supposed to be holding the assertion for.
-    private func write(_ string: String) {
+    private func write(_ string: String, to descriptor: Int32? = nil) {
         let bytes = Array(string.utf8)
-        let fd = handle.fileDescriptor
+        let fd = descriptor ?? handle.fileDescriptor
         var offset = 0
         while offset < bytes.count {
             let written = bytes.withUnsafeBufferPointer { buffer in

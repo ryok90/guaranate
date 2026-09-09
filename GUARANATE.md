@@ -327,18 +327,25 @@ Behavior:
    output must never be able to end a session either — a closed or unread stream
    costs a status line, never the assertion.
 6. Keep the assertion for the lifetime of the child process. A stopped command is
-   not a finished one, so the assertion is held while the job is paused. A paused
-   session must stay reachable, though: a stopped process runs no code, so a
-   termination signal that arrives while it is paused has to take effect through
-   the kernel's own default action, never wait indefinitely for a resume that may
-   never come.
-7. Release the assertion once the child process has actually exited — a command
+   not a finished one, so the assertion is held while the job is paused. A stopped
+   supervisor runs no code, so a signal arriving during the pause is relayed when
+   the job is continued — and every path that could otherwise strand it supplies
+   that continue: `fg`, `bg`, POSIX `kill %job`, and the kernel itself, which owes
+   `SIGHUP` and `SIGCONT` to a process group orphaned while stopped. Handing the
+   signals back to the kernel for the duration of the pause is the wrong trade: it
+   would end Guaranate without relaying anything, orphaning a command that ignores
+   `SIGHUP` behind a released assertion.
+7. Leave the caller's own signal choices alone. Dispositions are inherited across
+   `exec`, so a signal the surrounding shell deliberately ignores — as it does with
+   `SIGINT` for background jobs — must stay ignored in the command. Guaranate
+   restores only the dispositions it took over itself.
+8. Release the assertion once the child process has actually exited — a command
    must never keep running against a machine that has already been allowed to
    sleep.
-8. Exit with the child's exit code, or `128 + signal` when a signal killed it.
+9. Exit with the child's exit code, or `128 + signal` when a signal killed it.
    A command that cannot be found exits 127; one that cannot be executed exits
    126, matching every POSIX shell.
-9. Never leave a stale assertion behind.
+10. Never leave a stale assertion behind.
 
 Example:
 
@@ -385,7 +392,14 @@ Behavior:
 4. Refuse a process id that is not in use, or that names a process which has
    already exited and is only waiting to be collected, rather than silently
    succeeding.
-5. Survive process-id reuse: a recycled id must never inherit the assertion.
+5. Survive process-id reuse: a recycled id must never inherit the assertion. The
+   watch must be provably attached to the process that was looked up before the
+   session commits to it.
+6. Never report a watch that could not be established as finished work. "Already
+   gone" and "the kernel would not report the exit" are different answers: the
+   first ends the session normally, the second is an error, because releasing the
+   assertion and exiting 0 would leave the process it was asked to protect running
+   with nothing holding the Mac awake.
 
 A process belonging to another user can be watched, and the assertion should be
 attributed to the watched process so that system tools name the process the Mac

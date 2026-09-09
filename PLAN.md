@@ -122,14 +122,21 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     the command's own children are signalled with it instead of outliving a
     released assertion — a descendant that ignores a signal still survives, as it
     would unwrapped. Ctrl+Z is mirrored so the whole job stops and `fg` resumes it,
-    with the assertion kept while the command is only paused; because a stopped
-    process can relay nothing, the termination signals get their default
-    dispositions back for the duration of the pause, so a `kill` or a closed
-    terminal can still end a session that would otherwise be unreachable.
-  - The child also needs its inherited dispositions reset: the parent sets these
-    signals to `SIG_IGN` so its dispatch sources are the sole handlers, and
-    `SIG_IGN` survives `exec` — without `POSIX_SPAWN_SETSIGDEF` the child would be
-    silently immune to Ctrl+C. Covered by a unit test.
+    with the assertion kept while the command is only paused.
+  - A stopped supervisor can relay nothing, and handing the termination signals
+    back to the kernel for the duration of the pause was tried and reverted: it
+    ends Guaranate without relaying, which orphans a command that ignores `SIGHUP`
+    behind a released assertion. Keeping them means a signal sent during a pause is
+    relayed on the next continue — and every path that could strand a paused job
+    supplies one: `fg`, `bg`, POSIX `kill %job`, and the kernel's own `SIGHUP` +
+    `SIGCONT` to a process group orphaned while stopped. Covered by smoke tests 15
+    and 21, both using a command that ignores `SIGHUP` so only the relay can end it.
+  - The child also needs the dispositions Guaranate took over reset: it sets them
+    to `SIG_IGN` so its dispatch sources are the sole handlers, and `SIG_IGN`
+    survives `exec` — without `POSIX_SPAWN_SETSIGDEF` the command would be silently
+    immune to Ctrl+C. Only what Guaranate itself changed is reset: a disposition the
+    caller was already ignoring is the caller's choice and is inherited untouched,
+    which is what a shell relies on to make background jobs immune to Ctrl+C.
 - [x] `M2-T4` Child exit-code propagation.
   - Acceptance: `guaranate while sh -c 'exit 7'` exits 7; signal-terminated child maps to 128+signal.
   - Also: command not found exits 127, command not executable exits 126.
@@ -158,12 +165,14 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     command, suspended start, stop-versus-exit wait-status decoding, a group signal
     reaching the command's own children, rejection of an option-like command token,
     display-name quoting/escaping, process identity and pid-reuse detection,
-    synchronous exit registration, plus `scripts/smoke.sh` tests 3–19 against the
-    real binary — which now also cover process-group teardown, the terminal handoff
-    under a pty, job control including termination of a stopped session, stdout
-    purity, unreadable and closed output streams, a command killed before it is
-    resumed, and a `tostop` terminal. Remaining: `until` calculation (blocked on
-    `M2-T8`).
+    synchronous exit registration (attach, quiet-while-running, recycled identity,
+    dead pid), plus `scripts/smoke.sh` tests 3–22 against the real binary — which
+    now also cover process-group teardown, the terminal handoff under a pty, job
+    control including termination of a stopped session and a stopped session whose
+    terminal disappears, stdout purity, unreadable and closed output streams, a
+    command killed before it is resumed, a `tostop` terminal, a backgrounded timed
+    session, and inherited signal dispositions. Remaining: `until` calculation
+    (blocked on `M2-T8`).
 - [x] `M2-T10` Hold the assertion until an already-running process exits.
   - Shipped as an option, `guaranate -w <pid>` / `--watch <pid>`, not the
     `watch <pid>` subcommand this task originally specified. #17 had rejected
@@ -183,9 +192,11 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     registers asynchronously on libdispatch's manager queue: `EV_ADD` returning is
     the only moment at which the watch is provably attached to the process that was
     looked up, and the `(pid, start-time)` identity is therefore re-verified after
-    it, never before. `ESRCH` from registration is the "already gone" answer, so an
-    unused pid can never be reported as an exit. The assertion carries
-    `kIOPMAssertionOnBehalfOfPID` so `pmset` names the watched process.
+    it, never before. `ESRCH` from registration is the "already gone" answer and
+    ends the session normally; any other registration failure is an error that
+    exits 71 (`EX_OSERR`), because releasing the assertion and exiting 0 would leave
+    the watched process running with nothing holding the Mac awake. The assertion
+    carries `kIOPMAssertionOnBehalfOfPID` so `pmset` names the watched process.
   - Refs: `Sources/GuaranateCore/Process/ProcessIdentity.swift`,
     `Sources/GuaranateCore/Process/ProcessExitRegistrar.swift`,
     `Sources/GuaranateCLI/TimedSession.swift`, #33.

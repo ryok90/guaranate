@@ -124,11 +124,25 @@ reports it as stopped and `fg` resumes both halves together. The assertion is
 deliberately kept while the command is paused: a pause is not an ending, and the
 work is still there to come back to.
 
-A pause is not a hiding place either. A stopped process runs no code, so nothing
-can be relayed until it is continued; a `kill` against a paused session therefore
-ends it the way the kernel ends any stopped job, and the assertion goes with it.
-Closing the terminal on a stopped session is the case that matters: it can no
-longer be resumed, so it must not be able to hold your Mac awake either.
+A pause is not a hiding place either, but the way out is a continue rather than a
+kill. A stopped process runs no code, so a signal that arrives while the job is
+paused is relayed the moment it is resumed — and everything that could otherwise
+strand a paused job resumes it for you: `fg`, `bg`, and `kill %job` all send
+`SIGCONT` along, and when a terminal closes, the kernel is required to send
+`SIGHUP` **and** `SIGCONT` to a job left stopped behind it. So a `kill` against a
+paused session takes effect, the command is signalled rather than abandoned, and
+the assertion is released once it has actually gone. A bare `kill -STOP` you sent
+yourself is the one exception: you are holding the pause, so continue it (or
+`kill -9`, which always works — the kernel drops assertions with the process).
+
+### Your signal choices survive
+
+Signal dispositions are inherited, and Guaranate keeps it that way. A shell
+running a background job makes it immune to Ctrl+C by ignoring `SIGINT` in it; a
+script may deliberately ignore `SIGTERM` before starting work. Wrapping such a
+command in `guaranate while` does not change that: only the dispositions Guaranate
+took over for itself are restored in the command, so the work reacts to signals
+exactly as it would unwrapped.
 
 ### Where the flags go
 
@@ -228,6 +242,12 @@ That exits `64`. Pid `0`, a negative pid, and Guaranate's own pid are rejected
 the same way — and so is a process that has already exited but whose parent has
 not collected it yet: it still answers to its pid, but there is nothing left to
 wait for.
+
+The reverse case is treated as an error too. If the process exists but the kernel
+will not report its exit — a descriptor limit, or anything else that makes the
+watch impossible — Guaranate says so, releases, and exits `71` rather than exiting
+`0` as though the work had finished. A watch that cannot be established is not a
+watch that succeeded.
 
 A session is either timed or tied to a process, never both:
 

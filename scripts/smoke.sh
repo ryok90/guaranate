@@ -555,5 +555,32 @@ rm -f "$tostop_out"
 wait_for_assertion "$reason19" absent || fail "stale assertion '$reason19' left behind"
 echo "  ✓ start line, command output, and exit code all survive tostop"
 
+# --- Test 20: a backgrounded timed session must keep running --------------------
+echo
+echo "▸ Test 20: timed session in the background (keeps holding, never stops itself)"
+reason20="$tag-timed-background"
+bg_out="$(mktemp)"
+# `set -m` puts the session in its own process group under a real pty, so it is a
+# background job of a job-control shell — the case where reaching for the keyboard
+# would stop it on the first keystroke while it still held the assertion.
+script -q /dev/null /bin/bash --norc -c \
+  "set -m; '$BIN' 4 --reason '$reason20' & sleep 2; printf 'x\n'; sleep 1; \
+   ps -o state= -p \$! | tr -d ' ' | sed 's/^/STATE=/'; wait \$!; echo \"RC=\$?\"" \
+  >"$bg_out" 2>&1 &
+child_pid=$!
+settled=0
+for _ in $(seq 1 150); do
+  grep -q "RC=" "$bg_out" && { settled=1; break; }
+  sleep 0.1
+done
+(( settled == 1 )) || fail "a backgrounded timed session never finished"
+wait "$child_pid" 2>/dev/null || true
+child_pid=""
+grep -q "STATE=S" "$bg_out" || fail "a backgrounded timed session was stopped: $(grep STATE= "$bg_out")"
+grep -q "RC=0" "$bg_out" || fail "a backgrounded timed session did not exit 0"
+rm -f "$bg_out"
+wait_for_assertion "$reason20" absent || fail "stale assertion '$reason20' left behind"
+echo "  ✓ ran to its deadline in the background, keystrokes left to the shell"
+
 echo
 echo "✓ smoke test passed"

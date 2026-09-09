@@ -124,11 +124,17 @@ final class TimedSession: @unchecked Sendable {
 
     /// Puts the terminal in cbreak mode (no line buffering, no echo) so a lone
     /// `q`/`Q` keypress ends the session. `ISIG` stays enabled so Ctrl+C still
-    /// raises SIGINT. No-op unless both stdin and stdout are TTYs (the live
-    /// frame's control); the original attributes are restored on every exit
-    /// path via `restoreTerminal` in `finish`.
+    /// raises SIGINT. The original attributes are restored on every exit path via
+    /// `restoreTerminal` in `finish`.
+    ///
+    /// Skipped unless both stdin and stdout are TTYs (the live frame's control)
+    /// *and* this process owns the terminal. A background session must not reach
+    /// for the keyboard at all: changing modes there fights the shell for the
+    /// user's line editing, and reading the terminal raises `SIGTTIN`, which would
+    /// stop the session on the first keystroke while it still holds the assertion.
     private func installKeyboard() {
         guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else { return }
+        guard tcgetpgrp(STDIN_FILENO) == getpgrp() else { return }
         var attrs = termios()
         guard tcgetattr(STDIN_FILENO, &attrs) == 0 else { return }
         originalTerminal = attrs

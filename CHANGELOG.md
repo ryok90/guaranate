@@ -62,6 +62,11 @@ dated, versioned section.
 
 - The mascot artwork in `README.md` and the docs site header no longer shows
   stray red specks outside the berry's outline.
+- A timed session started in the background no longer stops itself: it leaves the
+  terminal's keyboard to the shell instead of taking it over, so it keeps holding
+  the assertion rather than being suspended over a keystroke it should never have
+  been reading. Ending one from the keyboard still needs the foreground (`q`), or
+  `kill` from anywhere.
 
 ## [0.1.0] - 2026-08-29
 

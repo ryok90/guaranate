@@ -36,7 +36,7 @@ final class ProcessSession: @unchecked Sendable {
     private var token: PowerAssertionToken?
     private var childPID: pid_t?
     private var stateSource: DispatchSourceProcess?
-    private let registrar: SignalNoteRegistering
+    private let supervisor: SignalSupervising
     private var notes: (any SignalNoteReading)?
     private var noteSource: DispatchSourceRead?
     private var terminal: TerminalForeground?
@@ -49,7 +49,7 @@ final class ProcessSession: @unchecked Sendable {
         reason: String,
         power: PowerAsserting,
         child: ChildLaunching = ChildProcess(),
-        registrar: SignalNoteRegistering = KqueueSignalNotes(),
+        supervisor: SignalSupervising = KqueueSignalSupervisor(),
         // Status output goes to stderr: stdout belongs to the command alone, so
         // `guaranate while jq … > out.json` writes only the command's own bytes.
         renderer: TerminalRenderer = TerminalRenderer(handle: .standardError),
@@ -60,7 +60,7 @@ final class ProcessSession: @unchecked Sendable {
         self.reason = reason
         self.power = power
         self.child = child
-        self.registrar = registrar
+        self.supervisor = supervisor
         self.renderer = renderer
         self.clock = clock
         self.start = clock()
@@ -68,17 +68,20 @@ final class ProcessSession: @unchecked Sendable {
 
     /// Acquires the assertion, launches the command, and blocks until it exits.
     func run() throws {
-        token = try power.acquire(assertionType, reason: reason, onBehalfOf: nil)
-
-        // Installed before spawning so a signal arriving during startup cannot
-        // kill this process and orphan the assertion. A supervisor that cannot be
-        // signalled cannot be cancelled either, so a failure here is fatal rather
-        // than quietly accepted — and it happens before any child exists.
+        // Supervision comes before the assertion, not after: from the moment the
+        // kernel is recording, a Ctrl+C during startup is either relayed or fatal —
+        // and while nothing is recording, a signal takes its default action, which
+        // ends this process before it owns anything. Neither order can strand an
+        // assertion, but only this one can honor a signal that arrives while the
+        // assertion is being taken out. A supervisor that cannot be signalled cannot
+        // be cancelled either, so a failure here is fatal rather than accepted.
         do {
-            try installSignalHandlers()
+            try installSupervision()
         } catch {
             failToSupervise(error)
         }
+
+        token = try power.acquire(assertionType, reason: reason, onBehalfOf: nil)
 
         let pid: pid_t
         do {
@@ -98,8 +101,11 @@ final class ProcessSession: @unchecked Sendable {
         // foreground group. Afterwards it is a background one, where a terminal
         // with `tostop` set turns this very line into a `SIGTTOU` stop or an
         // `EIO` failure. The command is suspended either way, so nothing of its
-        // own can interleave.
+        // own can interleave — and the line is waited for here, briefly, so
+        // "Guaranate first, then the command" is an ordering and not a hope. A
+        // reader that has stopped reading costs the line, not the wait.
         renderer.renderProcessStart(command: invocation.displayName, type: assertionType)
+        renderer.flush()
         terminal = TerminalForeground()
         if let failure = terminal?.give(to: pid) {
             // Owning the terminal but being refused the handover is not silent, and
@@ -208,32 +214,21 @@ final class ProcessSession: @unchecked Sendable {
 
     // MARK: - Signals
 
-    private func installSignalHandlers() throws {
-        let watched = Self.forwardedSignals + [SIGCONT]
-        // `SIGPIPE` and `SIGTTOU` are taken over but never relayed, so they need no
-        // notes — only the same protection from arriving mid-install.
-        let taken = watched + [SIGPIPE, SIGTTOU]
+    /// Establishes supervision: what the kernel records, what this process's
+    /// dispositions become, and the order of the two. `SIGPIPE` and `SIGTTOU` are
+    /// taken over but never relayed — a vanished reader must not end a session, and
+    /// neither must a background write on a `tostop` terminal.
+    private func installSupervision() throws {
+        let supervision = try supervisor.supervise(
+            watching: Self.forwardedSignals + [SIGCONT],
+            quieting: [SIGPIPE, SIGTTOU]
+        )
+        notes = supervision.notes
+        // Only what Guaranate itself changed is reset in the command, so a signal the
+        // surrounding shell was already ignoring stays ignored there too.
+        signalsToResetInChild = supervision.changed
 
-        // Dispositions first, and process-wide: a mask is per-thread, so it cannot
-        // promise that *no* thread takes a signal's default action, while a
-        // disposition can. These handlers do nothing, which is the point — they exist
-        // so nothing dies before there is a watch to read arrivals from. What they
-        // replaced is recorded here: only a disposition Guaranate itself changed is
-        // reset in the command, so a signal the surrounding shell was already
-        // ignoring stays ignored, exactly as it would without Guaranate in front.
-        signalsToResetInChild = claimSignals(taken)
-
-        // Then the watch, with the signals blocked so one arriving in between cannot
-        // reach a handler that has nowhere to record it. `SIG_IGN` is the final
-        // disposition — it discards what is pending, which is why it comes last, and
-        // why the note is registered before it: the note is what survives.
-        let notes = try withSignalsBlocked(taken) {
-            let notes = try registrar.registerNotes(watching: watched)
-            for sig in taken { signal(sig, SIG_IGN) }
-            return notes
-        }
-        self.notes = notes
-
+        let notes = supervision.notes
         let source = DispatchSource.makeReadSource(fileDescriptor: notes.descriptor, queue: .main)
         source.setEventHandler { [weak self] in
             guard let self else { return }

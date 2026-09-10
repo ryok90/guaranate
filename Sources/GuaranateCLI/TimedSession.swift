@@ -22,7 +22,7 @@ final class TimedSession: @unchecked Sendable {
     private let renderer: TerminalRenderer
     private let watching: ProcessIdentity?
     private let registrar: ProcessExitRegistering
-    private let signalRegistrar: SignalNoteRegistering
+    private let supervisor: SignalSupervising
 
     private var token: PowerAssertionToken?
     private var renderTimer: DispatchSourceTimer?
@@ -40,7 +40,7 @@ final class TimedSession: @unchecked Sendable {
         reason: String,
         power: PowerAsserting,
         registrar: ProcessExitRegistering = KqueueExitRegistrar(),
-        signalRegistrar: SignalNoteRegistering = KqueueSignalNotes(),
+        supervisor: SignalSupervising = KqueueSignalSupervisor(),
         renderer: TerminalRenderer = TerminalRenderer(),
         now: Date = Date()
     ) {
@@ -51,23 +51,24 @@ final class TimedSession: @unchecked Sendable {
         self.reason = reason
         self.power = power
         self.registrar = registrar
-        self.signalRegistrar = signalRegistrar
+        self.supervisor = supervisor
         self.renderer = renderer
     }
 
     /// Acquires the assertion and blocks the process until the session ends.
     func run() throws {
-        token = try power.acquire(assertionType, reason: reason, onBehalfOf: watching?.pid)
-
-        // Before the first write, and before anything else can end the process:
-        // once the assertion exists, neither a signal nor a vanished reader on
-        // stdout may cut the session short.
+        // Supervision first, then the assertion: while nothing is recording, a signal
+        // takes its default action and ends this process before it owns anything, and
+        // from the moment it is recording, a signal is honored. Acquiring first would
+        // leave a gap where the session holds an assertion and a Ctrl+C does nothing.
         do {
-            try installSignalHandlers()
+            try installSupervision()
         } catch {
             failToSupervise(error)
             return
         }
+
+        token = try power.acquire(assertionType, reason: reason, onBehalfOf: watching?.pid)
         renderer.renderStart(deadline: deadline, type: assertionType, watching: watching?.displayName)
 
         startRenderTimer()
@@ -87,28 +88,19 @@ final class TimedSession: @unchecked Sendable {
         timer.resume()
     }
 
-    private func installSignalHandlers() throws {
-        // The same order and the same reasons as the process session: dispositions
-        // first and process-wide, because a mask is per-thread and cannot stop every
-        // thread from taking a default action; then the watch, blocked, so a signal
-        // arriving in between is neither lost nor acted on; then `SIG_IGN`, which
-        // discards what is pending and so must come after the note exists.
-        //
-        // `SIGPIPE` and `SIGTTOU` are taken over too, and never relayed: neither a
-        // vanished reader nor a background write on a `tostop` terminal may end a
-        // session the user asked to last a fixed time. The frame writes tolerate
-        // failure instead.
-        let watched = [SIGINT, SIGTERM]
-        let taken = watched + [SIGPIPE, SIGTTOU]
-        _ = claimSignals(taken)
+    /// Establishes supervision, in the one order that neither loses a signal nor
+    /// lets one end this process: see `KqueueSignalSupervisor`. `SIGPIPE` and
+    /// `SIGTTOU` are taken over and never relayed — neither a vanished reader nor a
+    /// background write on a `tostop` terminal may end a session the user asked to
+    /// last a fixed time. The frame writes tolerate failure instead.
+    private func installSupervision() throws {
+        let supervision = try supervisor.supervise(
+            watching: [SIGINT, SIGTERM],
+            quieting: [SIGPIPE, SIGTTOU]
+        )
+        notes = supervision.notes
 
-        let notes = try withSignalsBlocked(taken) {
-            let notes = try signalRegistrar.registerNotes(watching: watched)
-            for sig in taken { signal(sig, SIG_IGN) }
-            return notes
-        }
-        self.notes = notes
-
+        let notes = supervision.notes
         let source = DispatchSource.makeReadSource(fileDescriptor: notes.descriptor, queue: .main)
         source.setEventHandler { [weak self] in
             guard let self, !notes.drain().isEmpty else { return }

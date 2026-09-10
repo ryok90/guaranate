@@ -97,10 +97,17 @@ Refs: spec "Bootstrap target", "v0.1", "Recommended stack".
     and the calling shell, so another writer can fill a pipe in between. The queue is
     what makes the guarantee: with the readiness check disabled, so that every write
     really blocked on a full undrained pipe, a `while` session still answered
-    `SIGTERM` and propagated 143. Backlog is capped at a few lines, and every exit
-    path flushes with a short bounded wait so a last line is neither lost nor able to
-    hold up the exit. `O_NONBLOCK` is deliberately not used: it lives on the shared
-    file description, so it would turn the command's own writes into failures.
+    `SIGTERM` and propagated 143. `O_NONBLOCK` is deliberately not used: it lives on
+    the shared file description, so it would turn the command's own writes into
+    failures.
+  - Backlog is refused a repaint at a time, never a write at a time: a frame is a
+    clear escape *and* its content, so dropping half of a pair garbles the terminal,
+    and the cursor-restoring escape, the start line, the completion summary and any
+    diagnostic each happen once — they always queue, because they cannot grow without
+    bound and losing them would cost a session's last words or leave a terminal
+    without its cursor. Exit paths flush with a short bounded wait, and `while`
+    flushes its start line before handing the terminal over, so "Guaranate first,
+    then the command" is an ordering rather than a hope.
 
 ---
 
@@ -160,19 +167,29 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     relayed signal comes back with no terminal and stops again on `SIGTTIN`.
     Reproduced before the fix (foreground group stayed Guaranate's, command back to
     state `T`); relaying to a stopped command now goes through the same resume.
-  - Startup has two distinct holes, and they need two different tools. Ordering
-    alone leaves one open whichever way it is chosen: ignore-then-watch drops the
-    signal (`SIG_IGN` discards what is pending on this platform), watch-then-ignore
-    lets the kernel's default action end the process. A mask closes the first, but
-    only for the thread that sets it — a signal routed to any other thread still
-    took the default action, which was reproducible with an unmasked worker. So the
-    disposition goes first and process-wide (`claimSignals`, a handler that does
-    nothing: a handler, unlike `SIG_IGN`, does not discard what is pending), and the
-    mask covers registration and the swap to `SIG_IGN` after it. Verified directly:
-    `testClaimedSignalCannotEndThisProcess` sends a signal whose default action is
-    death from a multithreaded test process, and
-    `testRecordsASignalThatArrivesDuringABlockedInstall` proves the note survives
-    both the block and the ignore.
+  - Startup arrived at one order, reached by eliminating the others. Ignore-then-watch
+    drops a signal that lands in the gap (`SIG_IGN` discards what is pending on this
+    platform). Watch-then-ignore lets the kernel's default action end the process; a
+    mask fixes that only for the thread that sets it, and a signal routed to another
+    thread still took the default action, reproducibly. A handler that records nothing
+    survives every thread but swallows the arrival. So: **record, then survive, then
+    silence** — `EV_ADD` first, while the dispositions are still the caller's; then a
+    no-op handler process-wide, which unlike `SIG_IGN` leaves a pending signal alone;
+    then `SIG_IGN` under a mask. A signal arriving before the first step takes its
+    default action, which for `SIGINT` is the cancellation the user asked for, and the
+    kernel releases any assertion with the process.
+  - Which is also why supervision is established *before* the assertion is acquired:
+    acquiring first leaves a stretch where the session owns something and a Ctrl+C is
+    neither recorded nor fatal.
+  - The sequence lives in one place, `KqueueSignalSupervisor`, behind
+    `SignalSupervising`: every guarantee here is a relationship *between* steps, so a
+    caller able to take them separately is a caller able to get them wrong — and both
+    sessions had begun to drift. Verified in Core:
+    `testRecordsASignalArrivingWhileSupervisionIsEstablished` fires a signal from
+    inside registration, `testClaimedSignalCannotEndThisProcess` sends one whose
+    default action is death from this multithreaded test process, and
+    `testRecordsASignalThatArrivesDuringABlockedInstall` shows a note surviving both
+    the block and the ignore.
   - The child also needs the dispositions Guaranate took over reset: it sets them
     to `SIG_IGN` so its dispatch sources are the sole handlers, and `SIG_IGN`
     survives `exec` — without `POSIX_SPAWN_SETSIGDEF` the command would be silently

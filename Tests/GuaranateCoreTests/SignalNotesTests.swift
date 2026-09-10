@@ -119,4 +119,48 @@ final class SignalNotesTests: XCTestCase {
 
         XCTAssertEqual(claimSignals([SIGUSR1, SIGUSR2]), [SIGUSR2])
     }
+
+    /// A registrar that fires a signal at this process the moment registration lands
+    /// — the least convenient moment there is, after the kernel is recording but
+    /// before the dispositions have changed.
+    private struct SignalsOnRegistration: SignalNoteRegistering {
+        let sig: Int32
+        let inner = KqueueSignalNotes()
+
+        func registerNotes(watching signals: [Int32]) throws -> any SignalNoteReading {
+            let notes = try inner.registerNotes(watching: signals)
+            kill(getpid(), sig)
+            return notes
+        }
+    }
+
+    /// The ordering guarantee, from the outside: a signal that arrives while
+    /// supervision is being established is still there to read afterwards. It would
+    /// not be if the dispositions changed first — `SIG_IGN` discards what is pending,
+    /// and a handler that records nothing swallows it.
+    ///
+    /// `SIGURG` is used because its default action is to be discarded, so it is safe
+    /// to send in exactly the window where the disposition is still the caller's.
+    func testRecordsASignalArrivingWhileSupervisionIsEstablished() throws {
+        restore[SIGURG] = signal(SIGURG, SIG_DFL)
+
+        let supervisor = KqueueSignalSupervisor(registrar: SignalsOnRegistration(sig: SIGURG))
+        let supervision = try supervisor.supervise(watching: [SIGURG], quieting: [])
+        defer { supervision.notes.close() }
+
+        XCTAssertEqual(supervision.notes.drain(), [SIGURG])
+    }
+
+    func testSupervisionReportsEveryDispositionItTookOver() throws {
+        restore[SIGUSR1] = signal(SIGUSR1, SIG_DFL)
+        restore[SIGUSR2] = signal(SIGUSR2, SIG_IGN)
+
+        let supervision = try KqueueSignalSupervisor()
+            .supervise(watching: [SIGUSR1], quieting: [SIGUSR2])
+        defer { supervision.notes.close() }
+
+        XCTAssertEqual(supervision.changed, [SIGUSR1], "an inherited ignore is not ours to reset")
+        send(SIGUSR1)
+        XCTAssertEqual(supervision.notes.drain(), [SIGUSR1], "the watched signal is readable")
+    }
 }

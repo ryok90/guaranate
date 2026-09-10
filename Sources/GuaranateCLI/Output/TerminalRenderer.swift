@@ -78,6 +78,9 @@ final class TerminalRenderer: @unchecked Sendable {
 
     func renderFrame(deadline: Deadline?, start: Date, type: PowerAssertionType, now: Date, watching: String? = nil) {
         guard isInteractive else { return }
+        // A repaint is the one thing worth skipping when output is not draining: the
+        // next second brings another, and the frame after it will be correct.
+        guard !backlogged else { return }
         hideCursor()
         defer { frame += 1 }
 
@@ -309,13 +312,9 @@ final class TerminalRenderer: @unchecked Sendable {
         let bytes = Array(string.utf8)
         let fd = descriptor ?? handle.fileDescriptor
 
-        // A stuck writer must not turn a per-second frame into unbounded backlog:
-        // past a couple of lines in flight, output is what gets dropped.
         queued.lock()
-        let backlog = queuedLines
-        if backlog < Self.maximumBacklog { queuedLines += 1 }
+        queuedLines += 1
         queued.unlock()
-        guard backlog < Self.maximumBacklog else { return }
 
         writer.async { [weak self] in
             Self.writeAll(bytes, to: fd)
@@ -324,6 +323,20 @@ final class TerminalRenderer: @unchecked Sendable {
             self.queuedLines -= 1
             self.queued.unlock()
         }
+    }
+
+    /// Whether a repaint would only pile up behind a writer that is not draining.
+    ///
+    /// Backlog is refused a frame at a time, never a write at a time: a frame is a
+    /// clear escape *and* its content, and dropping half of a pair is how output gets
+    /// garbled. Everything else a session writes happens once — a start line, a
+    /// completion summary, a diagnostic, the escape that gives the cursor back — so
+    /// those always queue: they cannot grow without bound, and losing them would cost
+    /// the session's last words or leave a terminal without its cursor.
+    private var backlogged: Bool {
+        queued.lock()
+        defer { queued.unlock() }
+        return queuedLines >= Self.maximumBacklog
     }
 
     /// Waits briefly for queued output to reach the descriptor. Called before an

@@ -59,6 +59,62 @@ public struct KqueueSignalNotes: SignalNoteRegistering {
     }
 }
 
+/// Signal supervision, established as a whole: what the kernel records, what the
+/// process's dispositions become, and — the part that has needed correcting more
+/// than once — the order those happen in.
+public struct SignalSupervision: Sendable {
+    /// Where arrivals are read from, for as long as the session lasts.
+    public let notes: any SignalNoteReading
+    /// The dispositions this changed, and which a child must therefore have reset:
+    /// a signal the caller was already ignoring is the caller's choice, inherited
+    /// across `exec`, and is left alone.
+    public let changed: [Int32]
+}
+
+/// Taking a process's signals over.
+///
+/// One seam for the whole sequence, rather than one call per system API: every
+/// ordering guarantee here is a relationship *between* the steps, so a caller that
+/// could take them separately would be a caller that could get them wrong.
+public protocol SignalSupervising: Sendable {
+    /// Records `watching` and takes over both sets' dispositions.
+    ///
+    /// `watching` is relayed and therefore read back from the notes; `quieting` is
+    /// only silenced — `SIGPIPE` and `SIGTTOU`, which must never end a session but
+    /// have nothing to relay.
+    func supervise(watching: [Int32], quieting: [Int32]) throws -> SignalSupervision
+}
+
+/// The real thing: `kqueue` notes plus `signal(3)` dispositions, in this order.
+///
+/// 1. **Record.** `EV_ADD` first, while the dispositions are still the caller's, so
+///    from this point on every arrival is written down whatever happens next. A
+///    signal that lands before this takes its default action, which for `SIGINT` is
+///    exactly the cancellation the user asked for: the process ends, and the kernel
+///    releases any assertion with it.
+/// 2. **Survive.** Then the dispositions, process-wide, so no thread can take that
+///    default action any more. A handler that does nothing, not `SIG_IGN`: `SIG_IGN`
+///    discards what is already pending, and the note may be all that is left of it.
+/// 3. **Silence.** Finally `SIG_IGN`, under a mask so nothing arrives mid-swap. From
+///    here arrivals are notes and nothing else.
+public struct KqueueSignalSupervisor: SignalSupervising {
+    private let registrar: any SignalNoteRegistering
+
+    public init(registrar: any SignalNoteRegistering = KqueueSignalNotes()) {
+        self.registrar = registrar
+    }
+
+    public func supervise(watching: [Int32], quieting: [Int32]) throws -> SignalSupervision {
+        let notes = try registrar.registerNotes(watching: watching)
+        let taken = watching + quieting
+        let changed = claimSignals(taken)
+        withSignalsBlocked(taken) {
+            for sig in taken { signal(sig, SIG_IGN) }
+        }
+        return SignalSupervision(notes: notes, changed: changed)
+    }
+}
+
 /// Takes `signals` out of the kernel's hands process-wide, and reports which of
 /// them the caller was not already ignoring.
 ///
@@ -72,7 +128,7 @@ public struct KqueueSignalNotes: SignalNoteRegistering {
 /// The returned signals are the ones whose disposition this changed. A signal the
 /// surrounding shell was already ignoring is the caller's choice, inherited across
 /// `exec`, and must stay that way in a command.
-public func claimSignals(_ signals: [Int32]) -> [Int32] {
+func claimSignals(_ signals: [Int32]) -> [Int32] {
     signals.filter { sig in
         let previous = signal(sig) { _ in }
         // Dispositions are C function pointers, which Swift will not compare
@@ -94,7 +150,7 @@ public func claimSignals(_ signals: [Int32]) -> [Int32] {
 /// and there is one here — but the result is checked rather than assumed, and a
 /// refusal simply means `body` runs unmasked, still guarded by the dispositions.
 @discardableResult
-public func withSignalsBlocked<T>(_ signals: [Int32], _ body: () throws -> T) rethrows -> T {
+func withSignalsBlocked<T>(_ signals: [Int32], _ body: () throws -> T) rethrows -> T {
     var blocking = sigset_t()
     sigemptyset(&blocking)
     for signal in signals { sigaddset(&blocking, signal) }

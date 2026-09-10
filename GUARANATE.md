@@ -157,18 +157,32 @@ Display      May sleep
 Press Ctrl+C to stop
 ```
 
-Process session:
+Process sessions do not get a live frame. The command owns the terminal — its
+output, input, and exit code pass straight through — so Guaranate announces the
+session in one line, stays out of the way, and reports the outcome when the
+command exits:
+
+```text
+🌿 Guaranate — staying awake while pnpm build runs · System sleep prevented, display may sleep
+<the command's own output, untouched>
+✓ pnpm build finished after 47m 12s
+✓ Sleep-prevention assertion released
+```
+
+Watching an already-running process does get the live frame, because nothing
+else is writing to the terminal:
 
 ```text
 🌿 Guaranate
 
-Command      pnpm build
+⠹ Awake — until the watched process exits
+
 Elapsed      00:42:17
-Remaining    process lifetime
+Watching     4821 (node)
 Assertion    System sleep
 Display      May sleep
 
-Press Ctrl+C to stop
+Press Ctrl+C or q to stop
 ```
 
 Terminal behavior should degrade cleanly when stdout is not a TTY.
@@ -280,39 +294,74 @@ The first implementation can interpret a passed time as the next occurrence on t
 # Flagship workflow: keep awake while a command runs
 
 ```bash
-guaranate while -- pnpm build
-guaranate while -- ./long-running-task.sh
-guaranate while -- rsync ...
-guaranate while -- ffmpeg ...
-guaranate while -- ssh ...
+guaranate while pnpm build
+guaranate while ./long-running-task.sh
+guaranate while rsync ...
+guaranate while ffmpeg ...
+guaranate while ssh ...
 ```
+
+A `--` separator is accepted and optional; it is only needed when the command's
+own first argument could be mistaken for one of Guaranate's flags. A leading
+token that looks like a flag is reported as an unknown option rather than run as
+a program; `--` is how you say you really mean a program whose name starts with
+`-`.
 
 This should be treated as a **flagship feature**, not a small convenience wrapper.
 
 Behavior:
 
 1. Acquire the requested assertion.
-2. Launch the child process.
-3. Keep the assertion for the lifetime of the child process.
-4. Forward relevant signals.
-5. Release the assertion when the child process exits.
-6. Exit with the child's exit code.
-7. Never leave a stale assertion behind.
+2. Launch the child process, which inherits Guaranate's standard streams, leads a
+   process group of its own, and is given the controlling terminal.
+3. That handover is what makes Ctrl+C, Ctrl+Z, and stdin behave exactly as they
+   would without Guaranate in front: an interrupt reaches the command once, not
+   twice.
+4. Relay signals that arrive at Guaranate to the command's whole process group, so
+   its own children are signalled with it rather than left running behind a
+   released assertion. What a process does with a signal stays its own business: a
+   descendant that ignores or survives one keeps running, exactly as it would
+   without Guaranate in front.
+5. Keep stdout for the command alone; Guaranate's own start and completion lines
+   are diagnostics and belong on stderr, so `while` is safe in a pipeline. Status
+   output must never be able to end a session either, *or hold one up*: a closed,
+   broken, or unread stream costs a status line and nothing else. A reader that
+   stops reading is the case that matters, because a write to a full pipe waits —
+   so writing is never done on the path that answers signals and watches the
+   command.
+6. Keep the assertion for the lifetime of the child process. A stopped command is
+   not a finished one, so the assertion is held while the job is paused. A stopped
+   supervisor runs no code, so a signal arriving during the pause must be recorded
+   and relayed when the job is continued — never discarded, and never acted on
+   early. `fg` and `bg` supply that continue, as does an interactive shell's
+   `kill %job` and the kernel itself, which owes `SIGHUP` and `SIGCONT` to a
+   process group orphaned while stopped; a raw signal to a paused session waits,
+   exactly as it does for any stopped process. Handing the signals back to the
+   kernel for the duration of the pause is the wrong trade: it would end Guaranate
+   without relaying anything, orphaning a command that ignores `SIGHUP` behind a
+   released assertion.
+7. Decide terminal ownership on every resume, never remember it across a pause:
+   `fg` hands the terminal to the command, `bg` leaves it with the shell. A session
+   that assumes it still owns the terminal takes it from the shell it was handed
+   back to, so a background job swallows what the user types at the prompt.
+8. Leave the caller's own signal choices alone. Dispositions are inherited across
+   `exec`, so a signal the surrounding shell deliberately ignores — as it does with
+   `SIGINT` for background jobs — must stay ignored in the command. Guaranate
+   restores only the dispositions it took over itself.
+9. Release the assertion once the child process has actually exited — a command
+   must never keep running against a machine that has already been allowed to
+   sleep.
+10. Exit with the child's exit code, or `128 + signal` when a signal killed it.
+    A command that cannot be found exits 127; one that cannot be executed exits
+    126, matching every POSIX shell.
+11. Never leave a stale assertion behind.
 
 Example:
 
 ```text
-$ guaranate while -- pnpm build
-
-🌿 Guaranate
-Keeping your Mac awake
-
-Command      pnpm build
-Elapsed      00:38:12
-Assertion    System sleep
-Display      May sleep
-
-^C to stop
+$ guaranate while pnpm build
+🌿 Guaranate — staying awake while pnpm build runs · System sleep prevented, display may sleep
+<pnpm build's own output>
 ```
 
 When the command exits:
@@ -325,11 +374,45 @@ When the command exits:
 Potential later options:
 
 ```bash
-guaranate while --reason "Building release" -- pnpm build
-guaranate while --notify -- pnpm build
+guaranate while --notify pnpm build
 ```
 
 The first release does not need notifications, but the command lifecycle should be designed cleanly enough to support them later.
+
+---
+
+# Keep awake while an existing process runs
+
+```bash
+guaranate --watch 4821
+guaranate -w 4821
+```
+
+`while` only guards processes Guaranate launches. Plenty of long-running work is
+already running by the time someone realizes the Mac will fall asleep under it,
+so Guaranate should also be able to attach to an existing process id.
+
+Behavior:
+
+1. Acquire the requested assertion.
+2. Hold it until the named process exits, then release and exit 0.
+3. Only observe: never start, signal, or kill the watched process. Interrupting
+   Guaranate detaches from it and leaves it running.
+4. Refuse a process id that is not in use, or that names a process which has
+   already exited and is only waiting to be collected, rather than silently
+   succeeding.
+5. Survive process-id reuse: a recycled id must never inherit the assertion. The
+   watch must be provably attached to the process that was looked up before the
+   session commits to it.
+6. Never report a watch that could not be established as finished work. "Already
+   gone" and "the kernel would not report the exit" are different answers: the
+   first ends the session normally, the second is an error, because releasing the
+   assertion and exiting 0 would leave the process it was asked to protect running
+   with nothing holding the Mac awake.
+
+A process belonging to another user can be watched, and the assertion should be
+attributed to the watched process so that system tools name the process the Mac
+is being kept awake for.
 
 ---
 

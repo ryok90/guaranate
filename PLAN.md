@@ -27,7 +27,7 @@ source of truth for *sequencing and status*.
 | ID | Milestone | Status | Depends on |
 | --- | --- | --- | --- |
 | M1 | v0.1 — Native CLI foundation | done | — |
-| M2 | v0.2 — Process lifecycle (`while`, `until`) | todo | M1 |
+| M2 | v0.2 — Process lifecycle (`while`, `until`) | in-progress | M1 |
 | M3 | v0.3 — Observability & machine output | todo | M2 |
 | M4 | v0.4 — External leases | todo | M3 |
 | M5 | v0.5 — Power modes, closed-lid, deeper observability | todo | M4 |
@@ -90,39 +90,193 @@ Refs: spec "Bootstrap target", "v0.1", "Recommended stack".
   - Refs: `Sources/GuaranateCLI/Output/TerminalRenderer.swift`,
     `Sources/GuaranateCLI/TimedSession.swift`,
     `Sources/GuaranateCore/Terminal/ProgressBar.swift`, #21.
+  - Design note, added while hardening `M2`: rendered bytes leave on a serial queue
+    of their own, never on the queue that answers signals and watches the command.
+    Writability is checked first (`poll`), which makes a reader that has gone cost
+    nothing at all — but it is only a snapshot, and stderr is shared with the command
+    and the calling shell, so another writer can fill a pipe in between. The queue is
+    what makes the guarantee: with the readiness check disabled, so that every write
+    really blocked on a full undrained pipe, a `while` session still answered
+    `SIGTERM` and propagated 143. `O_NONBLOCK` is deliberately not used: it lives on
+    the shared file description, so it would turn the command's own writes into
+    failures.
+  - Backlog is refused a repaint at a time, never a write at a time: a frame is a
+    clear escape *and* its content, so dropping half of a pair garbles the terminal,
+    and the cursor-restoring escape, the start line, the completion summary and any
+    diagnostic each happen once — they always queue, because they cannot grow without
+    bound and losing them would cost a session's last words or leave a terminal
+    without its cursor. Exit paths flush with a short bounded wait, and `while`
+    flushes its start line before handing the terminal over, so "Guaranate first,
+    then the command" is an ordering rather than a hope.
 
 ---
 
-## M2 — v0.2 Process lifecycle · `todo`
+## M2 — v0.2 Process lifecycle · `in-progress`
 
-Goal: make `guaranate while -- <cmd>` a signature, polished workflow; add `until` and `watch <pid>`.
-Refs: spec "Flagship workflow", "v0.2", "Process model" (in-process case).
+Goal: make `guaranate while <cmd>` a signature, polished workflow; add `until`
+and watching an already-running process.
+Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
+"v0.2", "Process model" (in-process case).
 
-- [ ] `M2-T1` `ChildProcess` abstraction in `GuaranateCore`.
+- [x] `M2-T1` `ChildProcess` abstraction in `GuaranateCore`.
   - Acceptance: launch a command with argv; observe exit; testable without a real long-running process.
-  - Refs: spec `Sources/.../Process/ChildProcess.swift`.
-- [ ] `M2-T2` `while` command: acquire → launch child → hold for child lifetime → release on exit.
-  - Acceptance: `guaranate while -- sleep 30` holds the assertion for exactly the child's lifetime.
-- [ ] `M2-T3` Signal forwarding to the child (SIGINT/SIGTERM/SIGHUP).
+  - Shipped as `ChildLaunching` (protocol) + `ChildProcess` (`posix_spawnp`), with
+    `CommandInvocation` and `ExitStatus` as pure, separately-testable pieces.
+    Foundation `Process` was rejected: it never exposes the raw wait status needed
+    to tell `exit(9)` from death by `SIGKILL`, it reaps the child itself, and it
+    cannot start a child suspended.
+  - Refs: `Sources/GuaranateCore/Process/*`.
+- [x] `M2-T2` `while` command: acquire → launch child → hold for child lifetime → release on exit.
+  - Acceptance: `guaranate while sleep 30` holds the assertion for exactly the child's lifetime.
+  - Note: `--` is now optional (`guaranate while sleep 30`), accepted, and
+    stripped when present.
+  - Refs: `Sources/GuaranateCLI/Commands/WhileCommand.swift`, `Sources/GuaranateCLI/ProcessSession.swift`.
+- [x] `M2-T3` Signal forwarding to the child (SIGINT/SIGTERM/SIGHUP).
   - Acceptance: Ctrl+C reaches the child; child is not orphaned; parent waits for child teardown.
-- [ ] `M2-T4` Child exit-code propagation.
-  - Acceptance: `guaranate while -- sh -c 'exit 7'` exits 7; signal-terminated child maps to 128+signal.
-- [ ] `M2-T5` Guaranteed assertion release on every `while` exit path.
+  - Shipped design: the command leads its own process group and is handed the
+    controlling terminal while it is still suspended, so a terminal interrupt
+    reaches the command exactly once instead of once from the kernel and once from
+    a relay. Signals arriving at Guaranate are relayed to the command's group, so
+    the command's own children are signalled with it instead of outliving a
+    released assertion — a descendant that ignores a signal still survives, as it
+    would unwrapped. Ctrl+Z is mirrored so the whole job stops and `fg` resumes it,
+    with the assertion kept while the command is only paused.
+  - A stopped supervisor can relay nothing, and handing the termination signals
+    back to the kernel for the duration of the pause was tried and reverted: it
+    ends Guaranate without relaying, which orphans a command that ignores `SIGHUP`
+    behind a released assertion. Keeping them means nothing is lost either: the
+    kernel's note of a signal that arrives during a pause outlives the pause, so it
+    is relayed on the next continue. What supplies that continue was measured
+    rather than assumed: `fg` and `bg` do; an *interactive* shell's `kill %job`
+    does (bash and zsh both continue a job they know is stopped — verified against
+    a `SIGTERM`-ignoring job under a real pty); the kernel does for a process group
+    orphaned while stopped, which is the terminal-closed case. A raw
+    `kill -TERM <pid>`, and `kill %1` from a *non-interactive* shell, do not — the
+    signal waits, exactly as it waits for any stopped process, and `kill -9` ends
+    the session outright. Covered by smoke tests 15 and 21, both using a command
+    that ignores `SIGHUP` so only the relay can end it.
+  - Terminal ownership is re-decided on every resume, never remembered across the
+    pause: `fg` hands the terminal to the command, `bg` leaves it with the shell,
+    and a session that assumed it still owned the terminal took it away from the
+    shell it had just handed it back to. Covered by smoke test 23 through
+    `scripts/job-control-probe.py`, because a non-interactive shell cannot offer
+    `fg`/`bg` at all: it blocks forever on a stopped foreground job.
+  - A batch of notes is not order-free: a continue is applied before any relay in
+    it. Relaying first resumes the command without deciding terminal ownership, and
+    the continue behind it then finds nothing to do — a command that ignores the
+    relayed signal comes back with no terminal and stops again on `SIGTTIN`.
+    Reproduced before the fix (foreground group stayed Guaranate's, command back to
+    state `T`); relaying to a stopped command now goes through the same resume.
+  - Startup arrived at one order, reached by eliminating the others. Ignore-then-watch
+    drops a signal that lands in the gap (`SIG_IGN` discards what is pending on this
+    platform). Watch-then-ignore lets the kernel's default action end the process; a
+    mask fixes that only for the thread that sets it, and a signal routed to another
+    thread still took the default action, reproducibly. A handler that records nothing
+    survives every thread but swallows the arrival. So: **record, then survive, then
+    silence** — `EV_ADD` first, while the dispositions are still the caller's; then a
+    no-op handler process-wide, which unlike `SIG_IGN` leaves a pending signal alone;
+    then `SIG_IGN` under a mask. A signal arriving before the first step takes its
+    default action, which for `SIGINT` is the cancellation the user asked for, and the
+    kernel releases any assertion with the process.
+  - Which is also why supervision is established *before* the assertion is acquired:
+    acquiring first leaves a stretch where the session owns something and a Ctrl+C is
+    neither recorded nor fatal.
+  - The sequence lives in one place, `KqueueSignalSupervisor`, behind
+    `SignalSupervising`: every guarantee here is a relationship *between* steps, so a
+    caller able to take them separately is a caller able to get them wrong — and both
+    sessions had begun to drift. Verified in Core:
+    `testRecordsASignalArrivingWhileSupervisionIsEstablished` fires a signal from
+    inside registration, `testClaimedSignalCannotEndThisProcess` sends one whose
+    default action is death from this multithreaded test process, and
+    `testRecordsASignalThatArrivesDuringABlockedInstall` shows a note surviving both
+    the block and the ignore.
+  - The child also needs the dispositions Guaranate took over reset: it sets them
+    to `SIG_IGN` so its dispatch sources are the sole handlers, and `SIG_IGN`
+    survives `exec` — without `POSIX_SPAWN_SETSIGDEF` the command would be silently
+    immune to Ctrl+C. Only what Guaranate itself changed is reset: a disposition the
+    caller was already ignoring is the caller's choice and is inherited untouched,
+    which is what a shell relies on to make background jobs immune to Ctrl+C.
+- [x] `M2-T4` Child exit-code propagation.
+  - Acceptance: `guaranate while sh -c 'exit 7'` exits 7; signal-terminated child maps to 128+signal.
+  - Also: command not found exits 127, command not executable exits 126.
+- [x] `M2-T5` Guaranteed assertion release on every `while` exit path.
   - Acceptance: normal exit, child crash, and Ctrl+C all leave no stale assertion.
-- [ ] `M2-T6` `while` live frame (Command, Elapsed, Remaining = "process lifetime", Assertion, Display) + completion summary.
-  - Acceptance: matches spec examples; degrades off-TTY.
-- [ ] `M2-T7` `--reason` on `while`.
-  - Acceptance: reason recorded on the assertion.
+  - Refs: `scripts/smoke.sh` tests 3–5.
+- [x] `M2-T6` `while` session output + completion summary.
+  - Amended: the original acceptance called for a live redrawn frame (Command,
+    Elapsed, Remaining = "process lifetime", …). That is unachievable without
+    corrupting the terminal, because the command owns stdout — and a command using
+    its own alt-screen or progress bar would fight the frame unfixably. `while`
+    therefore passes the terminal through and bookends it with one start line and
+    a completion summary. The live frame is kept for watch sessions, where nothing
+    else writes to the terminal.
+  - Acceptance: the command's output is untouched; the summary names the command,
+    its outcome, and the elapsed time; degrades off-TTY.
+- [x] `M2-T7` `--reason` on `while`.
+  - Acceptance: reason recorded on the assertion; defaults to `while: <command>`
+    when omitted.
 - [ ] `M2-T8` `until <HH:MM>` command.
   - Acceptance: computes duration to next occurrence of local time; passed-time behavior documented AND tested.
   - Refs: spec "Run until a clock time".
-- [ ] `M2-T9` Tests: child monitoring, signal forwarding, exit-code propagation, `until` calculation.
-- [ ] `M2-T10` `watch <pid>` command — hold the assertion until an already-running process exits.
-  - Acceptance: `guaranate watch <pid>` acquires on start and releases exactly when the PID exits (kqueue `NOTE_EXIT`, not polling); unknown/already-dead PID exits cleanly without acquiring; Ctrl+C releases and detaches without killing the watched process; no stale assertion on any exit path. Reuses the M2-T5 release machinery; accepts `--reason`. Covers the caffeinate `-w <pid>` gap (guaranate otherwise only guards processes it launches).
+- [~] `M2-T9` Tests: child monitoring, signal forwarding, exit-code propagation, `until` calculation.
+  - Shipped: exit-status decoding, argv normalization, `PATH` resolution, 127/126
+    launch failures, inherited-`SIG_IGN` reset, process-group leadership of the
+    command, suspended start, stop-versus-exit wait-status decoding, a group signal
+    reaching the command's own children, rejection of an option-like command token,
+    display-name quoting/escaping, process identity and pid-reuse detection,
+    synchronous exit registration (attach, quiet-while-running, recycled identity,
+    dead pid), synchronous signal-note registration (a signal reported after its
+    disposition is taken over, one raised beforehand provably discarded, one that
+    arrives during a blocked install, coalescing, multiple signals, idempotent
+    close), a command killed while still suspended, a process owned by another user,
+    plus `scripts/smoke.sh` tests 3–23 against the real binary — which now also
+    cover process-group teardown, the terminal handoff under a pty, job control
+    including termination of a stopped session, a stopped session whose terminal
+    disappears (asserting the relay reached the command and the assertion outlived
+    it), `fg`/`bg` terminal ownership on resume, stdout purity, closed and unread
+    output streams — including a full pipe, which must cost the line and not the
+    session — a `tostop` terminal, a backgrounded timed session, and inherited
+    signal dispositions. Remaining: `until` calculation (blocked on `M2-T8`).
+- [x] `M2-T10` Hold the assertion until an already-running process exits.
+  - Shipped as an option, `guaranate -w <pid>` / `--watch <pid>`, not the
+    `watch <pid>` subcommand this task originally specified. #17 had rejected
+    `-w`-style parity; the reconciliation is that the capability is named
+    `--watch` (understandable terminology, per the spec's own preference over
+    one-letter compatibility flags) and `AGENTS.md`'s mandatory short-alias rule
+    independently makes its short `-w`. `caffeinate -w 1234` therefore ports
+    directly without adopting compatibility as a goal.
+  - Acceptance: acquires on start and releases exactly when the pid exits
+    (`DispatchSourceProcess`/kqueue `NOTE_EXIT`, not polling); an unused pid is
+    rejected without acquiring; Ctrl+C releases and detaches without killing the
+    watched process; no stale assertion on any exit path; accepts `--reason`.
+  - Beyond the original acceptance: plain `NOTE_EXIT` is requested and never
+    `NOTE_EXITSTATUS`, because the kernel only enforces credentials when both are
+    set — so processes owned by other users can be watched. Registration is done
+    directly against `kqueue` rather than through `DispatchSourceProcess`, which
+    registers asynchronously on libdispatch's manager queue: `EV_ADD` returning is
+    the only moment at which the watch is provably attached to the process that was
+    looked up, and the `(pid, start-time)` identity is therefore re-verified after
+    it, never before. `ESRCH` from registration is the "already gone" answer and
+    ends the session normally; any other registration failure is an error that
+    exits 71 (`EX_OSERR`), because releasing the assertion and exiting 0 would leave
+    the watched process running with nothing holding the Mac awake. The same
+    distinction runs through the lookup itself: only a pid that is provably gone
+    (`ESRCH`, or a zero-length `sysctl` result) is an ending, while a lookup that
+    merely failed is an operational error — `EPERM` from the existence check means
+    "exists, not yours", which is watchable. The assertion carries
+    `kIOPMAssertionOnBehalfOfPID` so `pmset` names the watched process.
+  - Refs: `Sources/GuaranateCore/Process/ProcessIdentity.swift`,
+    `Sources/GuaranateCore/Process/ProcessExitRegistrar.swift`,
+    `Sources/GuaranateCore/Process/SignalNotes.swift`,
+    `Sources/GuaranateCLI/TimedSession.swift`, `scripts/job-control-probe.py`, #33.
 
-Design note: the bare-duration root command and subcommands must coexist —
-resolve the argument-parser routing so `guaranate 10m` and `guaranate while …`
-both work.
+Design note: the bare-duration root command and subcommands now coexist via a
+`run` default subcommand. A root command that owns a positional argument cannot
+gain subcommands — `parsePositionalValues` runs before subcommand dispatch and has
+no subcommand awareness, so the positional silently swallows the subcommand name
+and makes it unreachable, with no compile-time or runtime diagnostic. The root is
+therefore a pure container, and `-v`/`--version` moved onto `run` because a root
+with a default subcommand never runs its own `run()`.
 
 ---
 

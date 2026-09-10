@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import GuaranateCore
 
@@ -20,6 +21,15 @@ final class TerminalRenderer: @unchecked Sendable {
     private var previousLineCount = 0
     private var frame = 0
     private var cursorHidden = false
+
+    /// Bytes leave on this queue, never on the caller's. Serial, so lines keep the
+    /// order they were rendered in.
+    private let writer = DispatchQueue(label: "dev.guaranate.output")
+    private let queued = NSLock()
+    private var queuedLines = 0
+    /// Small on purpose: the frame is one line per second, and a writer that is
+    /// stuck has a reader that is not reading — there is nothing worth queueing for.
+    private static let maximumBacklog = 4
 
     private let endTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -53,10 +63,12 @@ final class TerminalRenderer: @unchecked Sendable {
 
     // MARK: - Timed session
 
-    func renderStart(deadline: Deadline?, type: PowerAssertionType) {
+    func renderStart(deadline: Deadline?, type: PowerAssertionType, watching: String? = nil) {
         guard !isInteractive else { return }
         let line: String
-        if let deadline {
+        if let watching {
+            line = "🌿 Guaranate — staying awake while \(watching) runs"
+        } else if let deadline {
             line = "🌿 Guaranate — staying awake for \(TimeFormatting.compact(deadline.duration)), ends \(endTimeFormatter.string(from: deadline.end))"
         } else {
             line = "🌿 Guaranate — staying awake until interrupted"
@@ -64,8 +76,11 @@ final class TerminalRenderer: @unchecked Sendable {
         write(line + "\n")
     }
 
-    func renderFrame(deadline: Deadline?, start: Date, type: PowerAssertionType, now: Date) {
+    func renderFrame(deadline: Deadline?, start: Date, type: PowerAssertionType, now: Date, watching: String? = nil) {
         guard isInteractive else { return }
+        // A repaint is the one thing worth skipping when output is not draining: the
+        // next second brings another, and the frame after it will be correct.
+        guard !backlogged else { return }
         hideCursor()
         defer { frame += 1 }
 
@@ -76,12 +91,16 @@ final class TerminalRenderer: @unchecked Sendable {
             let fraction = deadline.duration > 0 ? deadline.elapsed(at: now) / deadline.duration : 1
             lines.append(progressBarLine(fraction: fraction, layout: layout))
         } else {
-            lines.append(indent + style(spinnerGlyph, .accent) + " " + style("Awake — until interrupted", .value))
+            let label = watching == nil ? "Awake — until interrupted" : "Awake — until the watched process exits"
+            lines.append(indent + style(spinnerGlyph, .accent) + " " + style(label, .value))
         }
         lines.append("")
 
         let elapsed = deadline?.elapsed(at: now) ?? max(0, now.timeIntervalSince(start))
         lines.append(row("Elapsed", TimeFormatting.clock(elapsed), .value, layout: layout))
+        if let watching {
+            lines.append(row("Watching", watching, .value, layout: layout))
+        }
         if let deadline {
             lines.append(row("Remaining", TimeFormatting.clock(deadline.remaining(at: now)), .value, layout: layout))
             lines.append(row("Ends", endTimeFormatter.string(from: deadline.end), .value, layout: layout))
@@ -125,6 +144,27 @@ final class TerminalRenderer: @unchecked Sendable {
             style("Sleep-prevention assertion released", .label),
         ]
         write(lines.joined(separator: "\n") + "\n")
+    }
+
+    // MARK: - Process session
+
+    /// Announces a `while` session in a single line.
+    ///
+    /// The command owns the terminal from here on: its output passes straight
+    /// through, so nothing is redrawn in place and the cursor is left alone.
+    func renderProcessStart(command: String, type: PowerAssertionType) {
+        let detail = " · \(type.summary)"
+        write("🌿 Guaranate — staying awake while " + style(command, .value) + " runs"
+            + style(detail, .label) + "\n")
+    }
+
+    /// Reports how the command ended and confirms the assertion was released.
+    func renderProcessFinished(command: String, elapsed: TimeInterval, status: ExitStatus) {
+        let mark = status.isSuccess ? "✓" : "✗"
+        let role: Role = status.isSuccess ? .ok : .warn
+        write(style(mark, role) + " " + style(command, .value) + " \(status.summary) after "
+            + TimeFormatting.compact(elapsed) + "\n")
+        write(style("✓", .ok) + " Sleep-prevention assertion released\n")
     }
 
     // MARK: - Frame composition
@@ -242,9 +282,106 @@ final class TerminalRenderer: @unchecked Sendable {
         cursorHidden = false
     }
 
-    private func write(_ string: String) {
-        guard let data = string.data(using: .utf8) else { return }
-        handle.write(data)
+    /// Reports a supervisor-level problem, prefixed the way a CLI names itself.
+    ///
+    /// Always on stderr, whichever stream the frame uses: a diagnostic is not
+    /// output, and a `while` session's stdout belongs to the command. Goes through
+    /// the same failure-tolerant write as every other line, because a diagnostic
+    /// that cannot be printed must still leave the exit code intact — the code is
+    /// what a script reads.
+    func renderDiagnostic(_ message: String) {
+        write("guaranate: \(message)\n", to: STDERR_FILENO)
+    }
+
+    /// Hands `string` to the writer and returns immediately.
+    ///
+    /// Status output must never be able to end *or delay* a session:
+    /// `FileHandle.write` raises on a closed descriptor, a pipe whose reader has
+    /// gone turns a write into `SIGPIPE`, and a pipe that is merely full — open,
+    /// with a reader that is not reading — makes `write(2)` block. The first two
+    /// would tear the supervisor down; the third is worse, because it would park it
+    /// with the assertion held, answering nothing.
+    ///
+    /// Checking writability first is not enough on its own: the descriptor is shared
+    /// with the command and the calling shell, so another writer can fill a pipe
+    /// between the check and the write. The bytes therefore leave on a queue of
+    /// their own, and a write that blocks anyway blocks nothing that matters. It
+    /// cannot be made non-blocking instead: `O_NONBLOCK` lives on the shared file
+    /// description, so setting it would turn the *command's* writes into failures.
+    private func write(_ string: String, to descriptor: Int32? = nil) {
+        let bytes = Array(string.utf8)
+        let fd = descriptor ?? handle.fileDescriptor
+
+        queued.lock()
+        queuedLines += 1
+        queued.unlock()
+
+        writer.async { [weak self] in
+            Self.writeAll(bytes, to: fd)
+            guard let self else { return }
+            self.queued.lock()
+            self.queuedLines -= 1
+            self.queued.unlock()
+        }
+    }
+
+    /// Whether a repaint would only pile up behind a writer that is not draining.
+    ///
+    /// Backlog is refused a frame at a time, never a write at a time: a frame is a
+    /// clear escape *and* its content, and dropping half of a pair is how output gets
+    /// garbled. Everything else a session writes happens once — a start line, a
+    /// completion summary, a diagnostic, the escape that gives the cursor back — so
+    /// those always queue: they cannot grow without bound, and losing them would cost
+    /// the session's last words or leave a terminal without its cursor.
+    private var backlogged: Bool {
+        queued.lock()
+        defer { queued.unlock() }
+        return queuedLines >= Self.maximumBacklog
+    }
+
+    /// Waits briefly for queued output to reach the descriptor. Called before an
+    /// exit, so a session's last line is not lost to the process ending — and
+    /// bounded, so a reader that has stopped reading cannot hold up the exit either.
+    func flush(timeout: TimeInterval = 0.25) {
+        let drained = DispatchSemaphore(value: 0)
+        writer.async { drained.signal() }
+        _ = drained.wait(timeout: .now() + timeout)
+    }
+
+    private static func writeAll(_ bytes: [UInt8], to fd: Int32) {
+        var offset = 0
+        while offset < bytes.count {
+            guard acceptsWriteNow(fd) else { return }
+            let chunk = min(bytes.count - offset, Int(PIPE_BUF))
+            let written = bytes.withUnsafeBufferPointer { buffer in
+                Darwin.write(fd, buffer.baseAddress! + offset, chunk)
+            }
+            if written > 0 {
+                offset += written
+            } else if written < 0, errno == EINTR {
+                continue
+            } else {
+                return
+            }
+        }
+    }
+
+    /// Whether `fd` has room for a `PIPE_BUF`-sized write right now.
+    ///
+    /// A pipe reports itself writable only when at least `PIPE_BUF` bytes are free.
+    /// That is a snapshot, not a reservation — which is why this is an optimization
+    /// (a reader that has gone away costs nothing at all) rather than the guarantee.
+    /// The guarantee is the queue this runs on.
+    private static func acceptsWriteNow(_ fd: Int32) -> Bool {
+        var target = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        while true {
+            let ready = poll(&target, 1, 0)
+            if ready < 0 {
+                guard errno == EINTR else { return true }
+                continue
+            }
+            return ready > 0 && target.revents & Int16(POLLOUT) != 0
+        }
     }
 
     // MARK: - Layout

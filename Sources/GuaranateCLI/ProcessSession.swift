@@ -209,33 +209,27 @@ final class ProcessSession: @unchecked Sendable {
     // MARK: - Signals
 
     private func installSignalHandlers() throws {
-        // Registration first, dispositions second, and both with the signals
-        // blocked. Ordering alone is not enough in either direction: taking a
-        // disposition over before the kernel is watching drops a Ctrl+C that lands
-        // in the gap, because this platform discards what is pending for a signal
-        // the moment it becomes `SIG_IGN` — and watching before taking it over
-        // leaves the kernel's default action free to end this process in the same
-        // gap. Blocked, neither can happen: the note is still recorded, and nothing
-        // acts on the signal until the mask lifts.
         let watched = Self.forwardedSignals + [SIGCONT]
         // `SIGPIPE` and `SIGTTOU` are taken over but never relayed, so they need no
         // notes — only the same protection from arriving mid-install.
-        let notes = try withSignalsBlocked(watched + [SIGPIPE, SIGTTOU]) {
+        let taken = watched + [SIGPIPE, SIGTTOU]
+
+        // Dispositions first, and process-wide: a mask is per-thread, so it cannot
+        // promise that *no* thread takes a signal's default action, while a
+        // disposition can. These handlers do nothing, which is the point — they exist
+        // so nothing dies before there is a watch to read arrivals from. What they
+        // replaced is recorded here: only a disposition Guaranate itself changed is
+        // reset in the command, so a signal the surrounding shell was already
+        // ignoring stays ignored, exactly as it would without Guaranate in front.
+        signalsToResetInChild = claimSignals(taken)
+
+        // Then the watch, with the signals blocked so one arriving in between cannot
+        // reach a handler that has nowhere to record it. `SIG_IGN` is the final
+        // disposition — it discards what is pending, which is why it comes last, and
+        // why the note is registered before it: the note is what survives.
+        let notes = try withSignalsBlocked(taken) {
             let notes = try registrar.registerNotes(watching: watched)
-            // Ignored so the kernel's default action cannot end or stop this process
-            // behind the relay's back. The child gets the dispositions back via
-            // POSIX_SPAWN_SETSIGDEF.
-            for sig in watched { take(sig) }
-            // Status output must never be able to end or stop a session that already
-            // holds an assertion. A vanished reader would otherwise raise `SIGPIPE`,
-            // and a write from the background group — which is what this process
-            // becomes once the command owns the terminal — would raise `SIGTTOU` on
-            // a terminal with `tostop` set. Writes are failure-tolerant instead. The
-            // command gets both dispositions back, so it still dies on a broken pipe
-            // and still stops on a background write, exactly as if it were run
-            // directly.
-            take(SIGPIPE)
-            take(SIGTTOU)
+            for sig in taken { signal(sig, SIG_IGN) }
             return notes
         }
         self.notes = notes
@@ -255,27 +249,6 @@ final class ProcessSession: @unchecked Sendable {
         source.setCancelHandler { notes.close() }
         noteSource = source
         source.resume()
-    }
-
-    /// Takes a signal over from the kernel, and records whether the command will
-    /// need its default disposition restored.
-    ///
-    /// `SIG_IGN` is inherited across `exec`, so every signal this process ignores
-    /// has to be reset in the child or the command would be deaf to it. Every
-    /// signal — except one the surrounding shell was *already* ignoring: that
-    /// disposition is inherited too, and the command would have inherited it
-    /// without Guaranate in front. Resetting those would make a wrapped command
-    /// die where the same command run directly survives.
-    private func take(_ sig: Int32) {
-        let previous = signal(sig, SIG_IGN)
-        // Dispositions are C function pointers, which Swift will not compare
-        // directly; `SIG_IGN` and `SIG_DFL` are sentinel addresses, so the bit
-        // patterns are the comparison.
-        let wasIgnored = unsafeBitCast(previous, to: UInt.self)
-            == unsafeBitCast(SIG_IGN, to: UInt.self)
-        if !wasIgnored {
-            signalsToResetInChild.append(sig)
-        }
     }
 
     /// Relays a termination signal to the command's process group and keeps waiting.
@@ -317,6 +290,7 @@ final class ProcessSession: @unchecked Sendable {
             status: status
         )
 
+        renderer.flush()
         exit(status.exitCode)
     }
 
@@ -328,6 +302,7 @@ final class ProcessSession: @unchecked Sendable {
         teardown()
 
         renderer.renderDiagnostic("\(invocation.displayName) ended, but its exit status could not be read")
+        renderer.flush()
         exit(1)
     }
 
@@ -338,6 +313,7 @@ final class ProcessSession: @unchecked Sendable {
         // Through the renderer, not `FileHandle`: a closed stderr must not turn a
         // missing command into an abort, because 127 is the contract a script reads.
         renderer.renderDiagnostic("\(error)")
+        renderer.flush()
         exit(error.exitCode)
     }
 
@@ -347,6 +323,7 @@ final class ProcessSession: @unchecked Sendable {
     private func failToSupervise(_ error: Error) -> Never {
         teardown()
         renderer.renderDiagnostic("\(error)")
+        renderer.flush()
         exit(71)
     }
 

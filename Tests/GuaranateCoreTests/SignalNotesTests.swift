@@ -98,4 +98,25 @@ final class SignalNotesTests: XCTestCase {
         notes.close()
         XCTAssertEqual(notes.drain(), [], "a closed registration reports nothing")
     }
+
+    /// Masks are per-thread, dispositions are not — which is why the disposition is
+    /// what stands between a signal and the default action. `SIGUSR1` defaults to
+    /// death, and this test process has other threads that mask nothing, so surviving
+    /// it is the whole assertion.
+    func testClaimedSignalCannotEndThisProcess() {
+        restore[SIGUSR1] = signal(SIGUSR1, SIG_DFL)
+        XCTAssertEqual(claimSignals([SIGUSR1]), [SIGUSR1], "a default disposition is one this changed")
+
+        send(SIGUSR1)
+        XCTAssertTrue(true, "still running, so no thread took the default action")
+    }
+
+    /// The caller's own choices are reported as untouched, so they are not reset in a
+    /// command that would have inherited them.
+    func testClaimReportsOnlyTheDispositionsItChanged() {
+        restore[SIGUSR1] = signal(SIGUSR1, SIG_IGN)
+        restore[SIGUSR2] = signal(SIGUSR2, SIG_DFL)
+
+        XCTAssertEqual(claimSignals([SIGUSR1, SIGUSR2]), [SIGUSR2])
+    }
 }

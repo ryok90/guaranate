@@ -90,6 +90,17 @@ Refs: spec "Bootstrap target", "v0.1", "Recommended stack".
   - Refs: `Sources/GuaranateCLI/Output/TerminalRenderer.swift`,
     `Sources/GuaranateCLI/TimedSession.swift`,
     `Sources/GuaranateCore/Terminal/ProgressBar.swift`, #21.
+  - Design note, added while hardening `M2`: rendered bytes leave on a serial queue
+    of their own, never on the queue that answers signals and watches the command.
+    Writability is checked first (`poll`), which makes a reader that has gone cost
+    nothing at all — but it is only a snapshot, and stderr is shared with the command
+    and the calling shell, so another writer can fill a pipe in between. The queue is
+    what makes the guarantee: with the readiness check disabled, so that every write
+    really blocked on a full undrained pipe, a `while` session still answered
+    `SIGTERM` and propagated 143. Backlog is capped at a few lines, and every exit
+    path flushes with a short bounded wait so a last line is neither lost nor able to
+    hold up the exit. `O_NONBLOCK` is deliberately not used: it lives on the shared
+    file description, so it would turn the command's own writes into failures.
 
 ---
 
@@ -149,15 +160,19 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     relayed signal comes back with no terminal and stops again on `SIGTTIN`.
     Reproduced before the fix (foreground group stayed Guaranate's, command back to
     state `T`); relaying to a stopped command now goes through the same resume.
-  - Registration and dispositions are both done with the signals blocked. Ordering
-    alone leaves a window in whichever direction it is chosen: ignore-then-watch
-    drops the signal (`SIG_IGN` discards what is pending on this platform),
-    watch-then-ignore lets the kernel's default action end the process. Blocked,
-    the note is still recorded and nothing acts on the signal — verified directly
-    (`SignalNotesTests.testRecordsASignalThatArrivesDuringABlockedInstall`, which
-    sends a signal whose default action is death). The mask is the calling thread's,
-    so a signal the kernel routes elsewhere in that window still takes the default
-    path; that is before any child exists and leaves nothing behind.
+  - Startup has two distinct holes, and they need two different tools. Ordering
+    alone leaves one open whichever way it is chosen: ignore-then-watch drops the
+    signal (`SIG_IGN` discards what is pending on this platform), watch-then-ignore
+    lets the kernel's default action end the process. A mask closes the first, but
+    only for the thread that sets it — a signal routed to any other thread still
+    took the default action, which was reproducible with an unmasked worker. So the
+    disposition goes first and process-wide (`claimSignals`, a handler that does
+    nothing: a handler, unlike `SIG_IGN`, does not discard what is pending), and the
+    mask covers registration and the swap to `SIG_IGN` after it. Verified directly:
+    `testClaimedSignalCannotEndThisProcess` sends a signal whose default action is
+    death from a multithreaded test process, and
+    `testRecordsASignalThatArrivesDuringABlockedInstall` proves the note survives
+    both the block and the ignore.
   - The child also needs the dispositions Guaranate took over reset: it sets them
     to `SIG_IGN` so its dispatch sources are the sole handlers, and `SIG_IGN`
     survives `exec` — without `POSIX_SPAWN_SETSIGDEF` the command would be silently

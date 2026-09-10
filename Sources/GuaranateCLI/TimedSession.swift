@@ -88,20 +88,23 @@ final class TimedSession: @unchecked Sendable {
     }
 
     private func installSignalHandlers() throws {
-        // Registration first, dispositions second, both with the signals blocked —
-        // the same order and the same reason as the process session: this platform
-        // discards what is pending for a signal that becomes `SIG_IGN`, and the
-        // kernel's default action is free to end this process until it does.
+        // The same order and the same reasons as the process session: dispositions
+        // first and process-wide, because a mask is per-thread and cannot stop every
+        // thread from taking a default action; then the watch, blocked, so a signal
+        // arriving in between is neither lost nor acted on; then `SIG_IGN`, which
+        // discards what is pending and so must come after the note exists.
+        //
+        // `SIGPIPE` and `SIGTTOU` are taken over too, and never relayed: neither a
+        // vanished reader nor a background write on a `tostop` terminal may end a
+        // session the user asked to last a fixed time. The frame writes tolerate
+        // failure instead.
         let watched = [SIGINT, SIGTERM]
-        let notes = try withSignalsBlocked(watched + [SIGPIPE, SIGTTOU]) {
+        let taken = watched + [SIGPIPE, SIGTTOU]
+        _ = claimSignals(taken)
+
+        let notes = try withSignalsBlocked(taken) {
             let notes = try signalRegistrar.registerNotes(watching: watched)
-            for sig in watched { signal(sig, SIG_IGN) }
-            // Neither a vanished reader nor a background write on a `tostop`
-            // terminal may end a session the user asked to last a fixed time: the
-            // frame writes tolerate failure instead. Neither is relayed, so neither
-            // needs a note.
-            signal(SIGPIPE, SIG_IGN)
-            signal(SIGTTOU, SIG_IGN)
+            for sig in taken { signal(sig, SIG_IGN) }
             return notes
         }
         self.notes = notes
@@ -227,6 +230,7 @@ final class TimedSession: @unchecked Sendable {
         renderer.renderFinished(elapsed: elapsed, interrupted: interrupted, type: assertionType)
 
         // SIGINT conventionally maps to 128 + signal number.
+        renderer.flush()
         exit(interrupted ? 130 : 0)
     }
 
@@ -251,6 +255,7 @@ final class TimedSession: @unchecked Sendable {
 
         renderer.renderDiagnostic("\(error)")
         // EX_OSERR: the request was valid, the system could not carry it out.
+        renderer.flush()
         exit(71)
     }
 }

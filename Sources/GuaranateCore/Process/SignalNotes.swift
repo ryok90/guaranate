@@ -59,23 +59,49 @@ public struct KqueueSignalNotes: SignalNoteRegistering {
     }
 }
 
+/// Takes `signals` out of the kernel's hands process-wide, and reports which of
+/// them the caller was not already ignoring.
+///
+/// A disposition is a property of the process, not of a thread, which is what makes
+/// this the only guard that holds everywhere: from here on, no thread can take a
+/// signal's default action. A handler is used rather than `SIG_IGN` because
+/// `SIG_IGN` discards what is already pending, and this runs *before* the watch
+/// exists — the point being to survive that gap, not to erase it. The handler does
+/// nothing: arrivals are read from the watch, never from here.
+///
+/// The returned signals are the ones whose disposition this changed. A signal the
+/// surrounding shell was already ignoring is the caller's choice, inherited across
+/// `exec`, and must stay that way in a command.
+public func claimSignals(_ signals: [Int32]) -> [Int32] {
+    signals.filter { sig in
+        let previous = signal(sig) { _ in }
+        // Dispositions are C function pointers, which Swift will not compare
+        // directly; `SIG_IGN` is a sentinel address, so the bit patterns are the
+        // comparison.
+        return unsafeBitCast(previous, to: UInt.self) != unsafeBitCast(SIG_IGN, to: UInt.self)
+    }
+}
+
 /// Runs `body` with `signals` blocked, restoring the previous mask afterwards.
 ///
-/// Blocking is what makes "register, then ignore" airtight rather than merely
-/// ordered: a blocked signal cannot take its default action, and its note is still
-/// recorded when it arrives, so neither outcome the ordering exists to prevent —
-/// dying of the signal, or losing it to `SIG_IGN` — can happen in between. The
-/// mask is this thread's, so a signal the kernel routes to another thread in that
-/// window still takes the default path; that happens before any child exists, and
-/// leaves nothing behind.
+/// Blocking is what keeps a signal from being *lost* while the watch is being
+/// established: a blocked signal stays pending instead of reaching a handler that
+/// has nowhere to record it, and its note is recorded when it arrives regardless.
+/// Pair it with `claimSignals(_:)`, which is what keeps the signal from *ending*
+/// this process: masks are per-thread, dispositions are not.
+///
+/// A mask this narrow cannot fail — `sigprocmask` rejects only an invalid `how`,
+/// and there is one here — but the result is checked rather than assumed, and a
+/// refusal simply means `body` runs unmasked, still guarded by the dispositions.
+@discardableResult
 public func withSignalsBlocked<T>(_ signals: [Int32], _ body: () throws -> T) rethrows -> T {
     var blocking = sigset_t()
     sigemptyset(&blocking)
     for signal in signals { sigaddset(&blocking, signal) }
 
     var previous = sigset_t()
-    sigprocmask(SIG_BLOCK, &blocking, &previous)
-    defer { sigprocmask(SIG_SETMASK, &previous, nil) }
+    let blocked = sigprocmask(SIG_BLOCK, &blocking, &previous) == 0
+    defer { if blocked { sigprocmask(SIG_SETMASK, &previous, nil) } }
 
     return try body()
 }

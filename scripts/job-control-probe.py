@@ -105,31 +105,63 @@ if shell == 0:
     os.kill(job, signal.SIGCONT)
     os.kill(job, signal.SIGKILL)
     os._exit(0)
-
 os.close(slave)
+
+
+def descendants(root):
+    """Every process under `root`, deepest last — gathered before anything dies."""
+    found = []
+    frontier = [root]
+    while frontier:
+        parent = frontier.pop()
+        kids = subprocess.run(
+            ["pgrep", "-P", str(parent)], capture_output=True, text=True
+        ).stdout.split()
+        for kid in kids:
+            found.append(int(kid))
+            frontier.append(int(kid))
+    return found
+
+
+def tear_down(root):
+    """Kills the whole fixture, groups included.
+
+    One `killpg` on the shell is not enough: the probe deliberately puts the job in
+    its own process group, and Guaranate gives its command another — so a timeout
+    would otherwise leave a real session holding a real assertion.
+    """
+    for pid in descendants(root) + [root]:
+        for target in (-pid, pid):
+            try:
+                os.kill(target, signal.SIGKILL)
+            except OSError:
+                pass
+
+
 collected = b""
 deadline = time.time() + 20
-while time.time() < deadline:
-    # `select` first: a blocking read would outlive the deadline it is supposed to
-    # respect, because the simulated shell holds the pty open.
-    ready, _, _ = select.select([master], [], [], 0.5)
-    if not ready:
-        continue
-    try:
-        chunk = os.read(master, 4096)
-    except OSError:
-        break
-    if not chunk:
-        break
-    collected += chunk
-
-# Whatever happened, nothing is left behind: the shell leads its own session, so
-# one signal to its group reaches every fixture under it.
+timed_out = False
 try:
-    os.killpg(shell, signal.SIGKILL)
-except OSError:
-    pass
-os.waitpid(shell, 0)
+    while True:
+        if time.time() >= deadline:
+            timed_out = True
+            break
+        # `select` first: a blocking read would outlive the deadline it is supposed
+        # to respect, because the simulated shell holds the pty open.
+        ready, _, _ = select.select([master], [], [], 0.5)
+        if not ready:
+            continue
+        try:
+            chunk = os.read(master, 4096)
+        except OSError:
+            break
+        if not chunk:
+            break
+        collected += chunk
+finally:
+    tear_down(shell)
+    os.waitpid(shell, 0)
+
 sys.stdout.write(collected.decode(errors="replace").replace("\r", ""))
-if time.time() >= deadline:
+if timed_out:
     sys.exit("job-control-probe: timed out waiting for the simulated shell")

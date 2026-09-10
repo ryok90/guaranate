@@ -741,7 +741,11 @@ else
   for mode in fg bg; do
     reason23="$tag-while-$mode"
     probe_out="$(mktemp)"
-    python3 "$probe" "$BIN" "$reason23" "$mode" /bin/sh -c 'sleep 10' >"$probe_out" 2>&1 || true
+    probe_status=0
+    python3 "$probe" "$BIN" "$reason23" "$mode" /bin/sh -c 'sleep 10' >"$probe_out" 2>&1 \
+      || probe_status=$?
+    (( probe_status == 0 )) \
+      || fail "the $mode probe failed ($probe_status): $(tr '\n' ' ' <"$probe_out")"
     reading() { grep -o "$1=[0-9a-zA-Z+]*" "$probe_out" | head -1 | cut -d= -f2; }
     shell_pgid="$(reading SHELL)"
     command_pgid="$(reading COMMANDGROUP)"

@@ -71,8 +71,8 @@ dated, versioned section.
   ownership is decided again on each resume, so `fg` gives the terminal to the
   command and `bg` leaves your prompt's keyboard alone (#33).
 - A signal that arrives while a session is starting up, or while a `while` job is
-  paused, is no longer dropped: it is recorded before dispositions change and
-  relayed once the job continues (#33).
+  paused, is neither dropped nor able to end the session before it begins: it is
+  recorded before dispositions change and relayed once the job continues (#33).
 - `--watch <pid>` no longer treats a failed process lookup as a finished process:
   only a pid that is genuinely gone ends the session, while an operational failure
   is reported and exits `71` rather than releasing the assertion and exiting `0`

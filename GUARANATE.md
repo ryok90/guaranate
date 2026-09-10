@@ -324,8 +324,11 @@ Behavior:
    without Guaranate in front.
 5. Keep stdout for the command alone; Guaranate's own start and completion lines
    are diagnostics and belong on stderr, so `while` is safe in a pipeline. Status
-   output must never be able to end a session either — a closed or unread stream
-   costs a status line, never the assertion.
+   output must never be able to end a session either, *or hold one up*: a closed,
+   broken, or unread stream costs a status line and nothing else. A reader that
+   stops reading is the case that matters, because a write to a full pipe waits —
+   so writing is never done on the path that answers signals and watches the
+   command.
 6. Keep the assertion for the lifetime of the child process. A stopped command is
    not a finished one, so the assertion is held while the job is paused. A stopped
    supervisor runs no code, so a signal arriving during the pause must be recorded

@@ -92,7 +92,9 @@ struct RunCommand: ParsableCommand {
             return try SystemProcessInspector().identity(of: pid)
         } catch let error as ProcessLookupError {
             guard case .cannotWatch = error else { throw ValidationError("\(error)") }
-            TerminalRenderer(handle: .standardError).renderDiagnostic("\(error)")
+            let renderer = TerminalRenderer(handle: .standardError)
+            renderer.renderDiagnostic("\(error)")
+            renderer.flush()
             throw ExitCode(71)
         } catch {
             throw ValidationError(String(describing: error))

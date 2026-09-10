@@ -22,6 +22,15 @@ final class TerminalRenderer: @unchecked Sendable {
     private var frame = 0
     private var cursorHidden = false
 
+    /// Bytes leave on this queue, never on the caller's. Serial, so lines keep the
+    /// order they were rendered in.
+    private let writer = DispatchQueue(label: "dev.guaranate.output")
+    private let queued = NSLock()
+    private var queuedLines = 0
+    /// Small on purpose: the frame is one line per second, and a writer that is
+    /// stuck has a reader that is not reading — there is nothing worth queueing for.
+    private static let maximumBacklog = 4
+
     private let endTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
@@ -281,23 +290,52 @@ final class TerminalRenderer: @unchecked Sendable {
         write("guaranate: \(message)\n", to: STDERR_FILENO)
     }
 
-    /// Writes with `write(2)`, and gives up rather than waiting.
+    /// Hands `string` to the writer and returns immediately.
     ///
     /// Status output must never be able to end *or delay* a session:
     /// `FileHandle.write` raises on a closed descriptor, a pipe whose reader has
     /// gone turns a write into `SIGPIPE`, and a pipe that is merely full — open,
     /// with a reader that is not reading — makes `write(2)` block. The first two
-    /// would tear the supervisor down; the third is worse, because it parks it with
-    /// the assertion held and the command still suspended, answering nothing.
+    /// would tear the supervisor down; the third is worse, because it would park it
+    /// with the assertion held, answering nothing.
     ///
-    /// So writability is checked first, and the write is chunked to `PIPE_BUF`,
-    /// which a pipe guarantees room for once it reports itself writable. The
-    /// descriptor's own flags are left alone: it is shared with the command and the
-    /// calling shell, and making it non-blocking behind their backs would turn
-    /// their writes into failures.
+    /// Checking writability first is not enough on its own: the descriptor is shared
+    /// with the command and the calling shell, so another writer can fill a pipe
+    /// between the check and the write. The bytes therefore leave on a queue of
+    /// their own, and a write that blocks anyway blocks nothing that matters. It
+    /// cannot be made non-blocking instead: `O_NONBLOCK` lives on the shared file
+    /// description, so setting it would turn the *command's* writes into failures.
     private func write(_ string: String, to descriptor: Int32? = nil) {
         let bytes = Array(string.utf8)
         let fd = descriptor ?? handle.fileDescriptor
+
+        // A stuck writer must not turn a per-second frame into unbounded backlog:
+        // past a couple of lines in flight, output is what gets dropped.
+        queued.lock()
+        let backlog = queuedLines
+        if backlog < Self.maximumBacklog { queuedLines += 1 }
+        queued.unlock()
+        guard backlog < Self.maximumBacklog else { return }
+
+        writer.async { [weak self] in
+            Self.writeAll(bytes, to: fd)
+            guard let self else { return }
+            self.queued.lock()
+            self.queuedLines -= 1
+            self.queued.unlock()
+        }
+    }
+
+    /// Waits briefly for queued output to reach the descriptor. Called before an
+    /// exit, so a session's last line is not lost to the process ending — and
+    /// bounded, so a reader that has stopped reading cannot hold up the exit either.
+    func flush(timeout: TimeInterval = 0.25) {
+        let drained = DispatchSemaphore(value: 0)
+        writer.async { drained.signal() }
+        _ = drained.wait(timeout: .now() + timeout)
+    }
+
+    private static func writeAll(_ bytes: [UInt8], to fd: Int32) {
         var offset = 0
         while offset < bytes.count {
             guard acceptsWriteNow(fd) else { return }
@@ -317,12 +355,11 @@ final class TerminalRenderer: @unchecked Sendable {
 
     /// Whether `fd` has room for a `PIPE_BUF`-sized write right now.
     ///
-    /// A pipe reports itself writable only when at least `PIPE_BUF` bytes are free,
-    /// which is exactly the guarantee this needs. Terminals, files and sockets say
-    /// yes almost always; a full pipe says no, and the line is dropped. When `poll`
-    /// itself cannot answer, the write is attempted anyway — refusing to print on a
-    /// descriptor that may well be fine would be its own failure.
-    private func acceptsWriteNow(_ fd: Int32) -> Bool {
+    /// A pipe reports itself writable only when at least `PIPE_BUF` bytes are free.
+    /// That is a snapshot, not a reservation — which is why this is an optimization
+    /// (a reader that has gone away costs nothing at all) rather than the guarantee.
+    /// The guarantee is the queue this runs on.
+    private static func acceptsWriteNow(_ fd: Int32) -> Bool {
         var target = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
         while true {
             let ready = poll(&target, 1, 0)

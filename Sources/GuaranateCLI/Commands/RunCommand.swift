@@ -43,7 +43,8 @@ struct RunCommand: ParsableCommand {
     var version = false
 
     func validate() throws {
-        try assertion.validate()
+        if version { return }
+        try assertion.validateSelection()
 
         if let duration {
             _ = try parseSeconds(duration)

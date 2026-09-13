@@ -76,7 +76,7 @@ guaranate while --display -- ./build.sh --release
 ```
 
 ```sh
-guaranate while <command> ... [--display] [--system] [--reason <text>] [--help]
+guaranate while [--display] [--system] [--reason <text>] [--help] <command> ...
 ```
 
 | Argument | Description |

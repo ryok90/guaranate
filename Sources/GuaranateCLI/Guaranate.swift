@@ -30,7 +30,7 @@ struct Guaranate: ParsableCommand {
             The timed form is the default command: see `guaranate run --help` for \
             its full options, and `guaranate while --help` for the command form.
             """,
-        subcommands: [RunCommand.self, WhileCommand.self],
+        subcommands: [RunCommand.self, WhileCommand.self, ExitWakeupGuardianCommand.self],
         defaultSubcommand: RunCommand.self
     )
 }

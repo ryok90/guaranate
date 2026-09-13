@@ -302,12 +302,10 @@ final class TerminalRenderer: @unchecked Sendable {
     /// would tear the supervisor down; the third is worse, because it would park it
     /// with the assertion held, answering nothing.
     ///
-    /// Checking writability first is not enough on its own: the descriptor is shared
-    /// with the command and the calling shell, so another writer can fill a pipe
-    /// between the check and the write. The bytes therefore leave on a queue of
-    /// their own, and a write that blocks anyway blocks nothing that matters. It
-    /// cannot be made non-blocking instead: `O_NONBLOCK` lives on the shared file
-    /// description, so setting it would turn the *command's* writes into failures.
+    /// The bytes therefore leave on a queue of their own, and a write that blocks
+    /// blocks nothing that matters. It cannot be made non-blocking instead:
+    /// `O_NONBLOCK` lives on the shared file description, so setting it would turn
+    /// the *command's* writes into failures.
     private func write(_ string: String, to descriptor: Int32? = nil) {
         let bytes = Array(string.utf8)
         let fd = descriptor ?? handle.fileDescriptor
@@ -351,7 +349,6 @@ final class TerminalRenderer: @unchecked Sendable {
     private static func writeAll(_ bytes: [UInt8], to fd: Int32) {
         var offset = 0
         while offset < bytes.count {
-            guard acceptsWriteNow(fd) else { return }
             let chunk = min(bytes.count - offset, Int(PIPE_BUF))
             let written = bytes.withUnsafeBufferPointer { buffer in
                 Darwin.write(fd, buffer.baseAddress! + offset, chunk)
@@ -363,24 +360,6 @@ final class TerminalRenderer: @unchecked Sendable {
             } else {
                 return
             }
-        }
-    }
-
-    /// Whether `fd` has room for a `PIPE_BUF`-sized write right now.
-    ///
-    /// A pipe reports itself writable only when at least `PIPE_BUF` bytes are free.
-    /// That is a snapshot, not a reservation — which is why this is an optimization
-    /// (a reader that has gone away costs nothing at all) rather than the guarantee.
-    /// The guarantee is the queue this runs on.
-    private static func acceptsWriteNow(_ fd: Int32) -> Bool {
-        var target = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-        while true {
-            let ready = poll(&target, 1, 0)
-            if ready < 0 {
-                guard errno == EINTR else { return true }
-                continue
-            }
-            return ready > 0 && target.revents & Int16(POLLOUT) != 0
         }
     }
 

@@ -29,7 +29,10 @@ if [[ ! -x "$BIN" ]]; then
 fi
 
 echo "· using binary: $BIN"
-echo "· $("$BIN" --version)"
+version="$("$BIN" --version)"
+echo "· $version"
+[[ "$("$BIN" --version --display --system)" == "$version" ]] \
+  || { echo "✗ FAIL: --version no longer bypasses unrelated validation" >&2; exit 1; }
 
 # Unique per-run reason so pmset greps can't collide with other assertions.
 tag="smoke-$$-$(date +%s)"
@@ -37,26 +40,32 @@ child_pid=""
 target_pid=""
 extra_pid=""
 filler_pid=""
+session_pid=""
+command_pid=""
 
 fail() {
   echo "✗ FAIL: $*" >&2
   exit 1
 }
 
-# Kill any lingering child on unexpected exit so we never leak an assertion.
+# Kill tracked process trees before their roots can orphan descendants.
+kill_tree() {
+  local root="$1"
+  local descendant
+  [[ -n "$root" ]] && kill -0 "$root" 2>/dev/null || return 0
+  while IFS= read -r descendant; do
+    [[ -n "$descendant" ]] && kill_tree "$descendant"
+  done < <(pgrep -P "$root" 2>/dev/null || true)
+  kill -KILL "$root" 2>/dev/null || true
+}
+
 cleanup() {
-  if [[ -n "$child_pid" ]] && kill -0 "$child_pid" 2>/dev/null; then
-    kill -KILL "$child_pid" 2>/dev/null || true
-  fi
-  if [[ -n "$target_pid" ]] && kill -0 "$target_pid" 2>/dev/null; then
-    kill -KILL "$target_pid" 2>/dev/null || true
-  fi
-  if [[ -n "$extra_pid" ]] && kill -0 "$extra_pid" 2>/dev/null; then
-    kill -KILL "$extra_pid" 2>/dev/null || true
-  fi
-  if [[ -n "$filler_pid" ]] && kill -0 "$filler_pid" 2>/dev/null; then
-    kill -KILL "$filler_pid" 2>/dev/null || true
-  fi
+  kill_tree "$child_pid"
+  kill_tree "$target_pid"
+  kill_tree "$extra_pid"
+  kill_tree "$filler_pid"
+  kill_tree "$session_pid"
+  kill_tree "$command_pid"
 }
 trap cleanup EXIT
 
@@ -67,6 +76,21 @@ assertion_present() {
   local out
   out="$(pmset -g assertions)"
   [[ "$out" == *"$1"* ]]
+}
+
+assertion_attributed_to() {
+  local reason="$1"
+  local pid="$2"
+  local line
+  local previous=""
+  while IFS= read -r line; do
+    if [[ "$line" == *"$reason"* && "$line" == *"Created for PID: $pid"* ]] \
+      || [[ "$previous" == *"$reason"* && "$line" == *"Created for PID: $pid"* ]]; then
+      return 0
+    fi
+    previous="$line"
+  done <<< "$(pmset -g assertions)"
+  return 1
 }
 
 # Poll until the assertion tagged $1 is present ($2=present) or absent
@@ -212,6 +236,9 @@ child_pid=$!
 
 wait_for_assertion "$reason6" present || fail "assertion '$reason6' never appeared in pmset while watching"
 echo "  ✓ assertion live in pmset while the watched process runs"
+assertion_attributed_to "$reason6" "$target_pid" \
+  || fail "assertion '$reason6' was not attributed to watched pid $target_pid"
+echo "  ✓ assertion attributed to the watched process"
 
 status=0
 wait "$child_pid" || status=$?
@@ -770,6 +797,45 @@ else
   echo "  ✓ fg hands the terminal to the command, bg leaves it with the shell"
   echo "  ✓ the command keeps running either way, no stale assertion"
 fi
+
+# --- Test 24: a killed paused command wakes its stopped supervisor -------------
+echo
+echo "▸ Test 24: while (SIGKILL while paused needs no external SIGCONT)"
+reason24="$tag-while-paused-kill"
+"$BIN" while --reason "$reason24" /bin/sleep 30 >/dev/null 2>&1 &
+child_pid=$!
+wait_for_assertion "$reason24" present || fail "assertion '$reason24' never appeared"
+command_pid="$(pgrep -P "$child_pid" | sort -n | head -1 || true)"
+[[ -n "$command_pid" ]] || fail "could not find the paused-kill command"
+
+kill -TSTP "-$command_pid" 2>/dev/null || fail "could not stop the command group"
+for _ in $(seq 1 50); do
+  [[ "$(state_of "$child_pid")" == "T" && "$(state_of "$command_pid")" == "T" ]] && break
+  sleep 0.1
+done
+[[ "$(state_of "$child_pid")" == "T" ]] || fail "Guaranate did not mirror the stop"
+[[ "$(state_of "$command_pid")" == "T" ]] || fail "the command did not stop"
+assertion_present "$reason24" || fail "the assertion was dropped while both halves were stopped"
+echo "  ✓ both halves stopped, assertion held"
+
+# No SIGCONT is sent here. Killing the paused command is the event that must make
+# the out-of-process guardian continue Guaranate so it can reap and release.
+kill -KILL "-$command_pid" 2>/dev/null || fail "could not kill the paused command group"
+settled=0
+for _ in $(seq 1 50); do
+  session_state="$(state_of "$child_pid" || true)"
+  [[ -z "$session_state" || "$session_state" == "Z" ]] && { settled=1; break; }
+  sleep 0.1
+done
+(( settled == 1 )) || fail "Guaranate stayed stopped after its paused command was killed"
+status=0
+wait "$child_pid" 2>/dev/null || status=$?
+child_pid=""
+command_pid=""
+(( status == 137 )) || fail "expected exit 137 after SIGKILL, got $status"
+wait_for_assertion "$reason24" absent || fail "stale assertion '$reason24' left behind"
+echo "  ✓ guardian woke Guaranate without external SIGCONT"
+echo "  ✓ exit 137, command reaped, assertion released"
 
 echo
 echo "✓ smoke test passed"

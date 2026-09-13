@@ -92,14 +92,9 @@ Refs: spec "Bootstrap target", "v0.1", "Recommended stack".
     `Sources/GuaranateCore/Terminal/ProgressBar.swift`, #21.
   - Design note, added while hardening `M2`: rendered bytes leave on a serial queue
     of their own, never on the queue that answers signals and watches the command.
-    Writability is checked first (`poll`), which makes a reader that has gone cost
-    nothing at all — but it is only a snapshot, and stderr is shared with the command
-    and the calling shell, so another writer can fill a pipe in between. The queue is
-    what makes the guarantee: with the readiness check disabled, so that every write
-    really blocked on a full undrained pipe, a `while` session still answered
-    `SIGTERM` and propagated 143. `O_NONBLOCK` is deliberately not used: it lives on
-    the shared file description, so it would turn the command's own writes into
-    failures.
+    A write may block there without blocking supervision; exit flushing is bounded.
+    `O_NONBLOCK` is deliberately not used: it lives on the shared file description,
+    so it would turn the command's own writes into failures.
   - Backlog is refused a repaint at a time, never a write at a time: a frame is a
     clear escape *and* its content, so dropping half of a pair garbles the terminal,
     and the cursor-restoring escape, the start line, the completion summary and any
@@ -196,6 +191,17 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     immune to Ctrl+C. Only what Guaranate itself changed is reset: a disposition the
     caller was already ignoring is the caller's choice and is inherited untouched,
     which is what a shell relies on to make background jobs immune to Ctrl+C.
+  - A command killed while both it and Guaranate are stopped cannot wake an
+    in-process observer. A hidden mode of the same executable is launched with
+    `posix_spawn` as an exit-wakeup guardian before Guaranate mirrors the stop. Its
+    kqueue registrations for command exit and supervisor signal/exit are confirmed
+    synchronously; only after seeing command exit and confirming the supervisor is
+    stopped does it send `SIGCONT`. Guaranate re-checks and reaps an exit that races
+    with setup before stopping. Normal resume and teardown cancel the guardian over
+    a private pipe and reap it, so cancellation never signals a reused pid; its
+    standard streams are `/dev/null`, so it cannot keep terminal or output pipes
+    open. If setup fails, Guaranate reports the failure and resumes the command
+    instead of stranding it. Covered by Core registration/order tests and smoke 24.
 - [x] `M2-T4` Child exit-code propagation.
   - Acceptance: `guaranate while sh -c 'exit 7'` exits 7; signal-terminated child maps to 128+signal.
   - Also: command not found exits 127, command not executable exits 126.
@@ -229,14 +235,15 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
     disposition is taken over, one raised beforehand provably discarded, one that
     arrives during a blocked install, coalescing, multiple signals, idempotent
     close), a command killed while still suspended, a process owned by another user,
-    plus `scripts/smoke.sh` tests 3–23 against the real binary — which now also
+    plus `scripts/smoke.sh` tests 3–24 against the real binary — which now also
     cover process-group teardown, the terminal handoff under a pty, job control
     including termination of a stopped session, a stopped session whose terminal
     disappears (asserting the relay reached the command and the assertion outlived
     it), `fg`/`bg` terminal ownership on resume, stdout purity, closed and unread
     output streams — including a full pipe, which must cost the line and not the
     session — a `tostop` terminal, a backgrounded timed session, and inherited
-    signal dispositions. Remaining: `until` calculation (blocked on `M2-T8`).
+    signal dispositions, and automatic cleanup when a paused command is killed.
+    Remaining: `until` calculation (blocked on `M2-T8`).
 - [x] `M2-T10` Hold the assertion until an already-running process exits.
   - Shipped as an option, `guaranate -w <pid>` / `--watch <pid>`, not the
     `watch <pid>` subcommand this task originally specified. #17 had rejected

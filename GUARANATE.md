@@ -137,7 +137,7 @@ Apple's open-source `caffeinate.c` should be treated as a **reference implementa
 
 Guaranate should not invoke `/usr/bin/caffeinate` as its implementation mechanism.
 
-It should also avoid copying significant portions of Apple's source. Reimplement the desired behavior using the public macOS APIs.
+It should also avoid copying significant portions of Apple's source. Reimplement the desired behavior using the public macOS APIs. The narrow exception is watched-process attribution: macOS exposes `IOPMAssertionSetProperty` publicly, but the `AssertionOnBehalfOfPID` property key used by `caffeinate` is only named in `IOPMLibPrivate.h`. Guaranate may set that accounting property so `pmset` names the protected process, but a failure to set it must fail acquisition rather than silently promise attribution that is absent.
 
 ### Terminal rendering
 
@@ -339,7 +339,10 @@ Behavior:
    exactly as it does for any stopped process. Handing the signals back to the
    kernel for the duration of the pause is the wrong trade: it would end Guaranate
    without relaying anything, orphaning a command that ignores `SIGHUP` behind a
-   released assertion.
+   released assertion. If the command is killed while both halves are stopped, an
+   out-of-process guardian continues Guaranate automatically so it can reap the
+   command, release the assertion, and propagate the signal exit status; no shell
+   or external `SIGCONT` is required.
 7. Decide terminal ownership on every resume, never remember it across a pause:
    `fg` hands the terminal to the command, `bg` leaves it with the shell. A session
    that assumes it still owns the terminal takes it from the shell it was handed

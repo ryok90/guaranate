@@ -45,7 +45,7 @@ struct WhileCommand: ParsableCommand {
             throw CleanExit.helpRequest(self)
         }
 
-        try assertion.validate()
+        try assertion.validateSelection()
 
         do {
             _ = try CommandInvocation(argv: command)

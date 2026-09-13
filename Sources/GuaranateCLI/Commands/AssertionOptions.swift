@@ -19,7 +19,7 @@ struct AssertionOptions: ParsableArguments {
     )
     var reason: String?
 
-    func validate() throws {
+    func validateSelection() throws {
         if display && system {
             throw ValidationError("Choose at most one of --display or --system.")
         }

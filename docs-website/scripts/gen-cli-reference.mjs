@@ -96,10 +96,15 @@ function fullName(command) {
 
 function synopsis(command) {
   const args = (command.arguments ?? []).filter(isVisible);
-  const tokens = [
-    ...args.filter((argument) => argument.kind === 'positional').map(synopsisToken),
-    ...args.filter((argument) => argument.kind !== 'positional').map(synopsisToken),
-  ].filter(Boolean);
+  const positionals = args.filter((argument) => argument.kind === 'positional');
+  const options = args.filter((argument) => argument.kind !== 'positional');
+  // A passthrough positional consumes every token after it, including tokens that
+  // look like this command's options. Match ArgumentParser's synopsis by putting
+  // the parent options first for that command shape.
+  const ordered = positionals.some((argument) => argument.parsingStrategy === 'allRemainingInput')
+    ? [...options, ...positionals]
+    : [...positionals, ...options];
+  const tokens = ordered.map(synopsisToken).filter(Boolean);
   if (visibleSubcommands(command).length > 0) tokens.push('[<subcommand>]');
   return [fullName(command), ...tokens].join(' ');
 }

@@ -86,6 +86,9 @@ dated, versioned section.
   its terminal: the continue is applied before the signal is relayed, so a command
   that survives the signal comes back able to read stdin instead of stopping again
   (#33).
+- Killing a paused `while` command now wakes Guaranate automatically so it reaps the
+  command, releases the assertion, and exits with `128 + signal`; no external
+  `SIGCONT` is needed (#33).
 - `--watch <pid>` reports a pid it cannot inspect as a system error (exit `71`)
   rather than as bad input (exit `64`) (#33).
 

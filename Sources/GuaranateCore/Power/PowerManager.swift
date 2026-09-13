@@ -27,8 +27,18 @@ public final class PowerManager: PowerAsserting, @unchecked Sendable {
 
         if let pid {
             var value = pid
-            if let number = CFNumberCreate(nil, .sInt32Type, &value) {
-                IOPMAssertionSetProperty(assertionID, Self.onBehalfOfPIDKey, number)
+            guard let number = CFNumberCreate(nil, .sInt32Type, &value) else {
+                _ = IOPMAssertionRelease(assertionID)
+                throw PowerAssertionError.attributionFailed(code: kIOReturnNoMemory)
+            }
+            let attributionResult = IOPMAssertionSetProperty(
+                assertionID,
+                Self.onBehalfOfPIDKey,
+                number
+            )
+            guard attributionResult == kIOReturnSuccess else {
+                _ = IOPMAssertionRelease(assertionID)
+                throw PowerAssertionError.attributionFailed(code: attributionResult)
             }
         }
 
@@ -44,8 +54,8 @@ extension PowerManager {
     /// `kIOPMAssertionOnBehalfOfPID`, which powerd documents as
     /// `CFSTR("AssertionOnBehalfOfPID")` in `IOPMLibPrivate.h` but does not ship
     /// in the public SDK. It is accounting metadata only — powerd takes no action
-    /// when the named process dies — so an unrecognized key is harmless: the
-    /// assertion is created either way and only the `pmset` attribution is lost.
+    /// when the named process dies — but failure is still surfaced because the
+    /// watch contract promises that `pmset` reports the protected process.
     /// `caffeinate` sets the same property the same way for its `-w` mode.
     /// Computed rather than stored: a stored `CFString` global is not `Sendable`
     /// under Swift 6 strict concurrency.

@@ -29,6 +29,7 @@ final class ProcessSession: @unchecked Sendable {
     private let reason: String
     private let power: PowerAsserting
     private let child: ChildLaunching
+    private let guardianFactory: ExitWakeupGuarding
     private let renderer: TerminalRenderer
     private let clock: @Sendable () -> Date
     private let start: Date
@@ -36,6 +37,7 @@ final class ProcessSession: @unchecked Sendable {
     private var token: PowerAssertionToken?
     private var childPID: pid_t?
     private var stateSource: DispatchSourceProcess?
+    private var guardian: (any ExitWakeupGuardian)?
     private let supervisor: SignalSupervising
     private var notes: (any SignalNoteReading)?
     private var noteSource: DispatchSourceRead?
@@ -49,6 +51,9 @@ final class ProcessSession: @unchecked Sendable {
         reason: String,
         power: PowerAsserting,
         child: ChildLaunching = ChildProcess(),
+        guardianFactory: ExitWakeupGuarding = PosixSpawnExitWakeupGuardian(
+            executablePath: Bundle.main.executablePath ?? CommandLine.arguments[0]
+        ),
         supervisor: SignalSupervising = KqueueSignalSupervisor(),
         // Status output goes to stderr: stdout belongs to the command alone, so
         // `guaranate while jq … > out.json` writes only the command's own bytes.
@@ -60,6 +65,7 @@ final class ProcessSession: @unchecked Sendable {
         self.reason = reason
         self.power = power
         self.child = child
+        self.guardianFactory = guardianFactory
         self.supervisor = supervisor
         self.renderer = renderer
         self.clock = clock
@@ -171,13 +177,50 @@ final class ProcessSession: @unchecked Sendable {
     /// not finished, it is only paused.
     private func handleStop() {
         guard !stopped else { return }
-        stopped = true
         reportTerminal(terminal?.restore())
         // Ownership ends with the pause. Whoever continues the job decides who owns
         // the terminal next: `fg` hands it to this process, `bg` keeps it for the
         // shell — so holding on to a stale claim here is how a background job comes
         // back and takes the shell's terminal away from it.
         terminal = nil
+        guard let childPID else { return }
+
+        do {
+            guardian = try guardianFactory.start(
+                commandPID: childPID,
+                supervisorPID: getpid()
+            )
+        } catch {
+            // The command may have ended while the helper was attempting to
+            // register. Reap it before choosing the degraded resume path.
+            switch child.wait(childPID) {
+            case .ended(let status):
+                finish(status: status)
+            case .unavailable:
+                finishWithUnknownStatus()
+            case .running, .stopped:
+                break
+            }
+            // Registration failed, so mirroring the stop could strand both halves
+            // forever. The command remains protected: report the degraded behavior,
+            // give its terminal back, and continue it instead.
+            renderer.renderDiagnostic("Could not guard paused command: \(error)")
+            resumeCommand(childPID)
+            return
+        }
+
+        // Registration is now live. Reap an exit that raced with setup before
+        // stopping; after this check, the guardian closes the remaining window.
+        switch child.wait(childPID) {
+        case .ended(let status):
+            finish(status: status)
+        case .unavailable:
+            finishWithUnknownStatus()
+        case .running, .stopped:
+            break
+        }
+
+        stopped = true
         // Termination signals stay ignored across the pause, so they stay this
         // process's to relay, and the kernel's note of one that arrives now
         // outlives the pause. A stopped process runs no code, so it is acted on
@@ -196,6 +239,13 @@ final class ProcessSession: @unchecked Sendable {
     private func resumeAfterStop() {
         guard let childPID, stopped else { return }
         stopped = false
+        guardian?.cancelAndWait()
+        guardian = nil
+        resumeCommand(childPID)
+    }
+
+    /// Re-evaluates terminal ownership and continues a stopped command.
+    private func resumeCommand(_ childPID: pid_t) {
         // Ownership is re-evaluated rather than assumed: this constructs a claim
         // only while this process really is the terminal's foreground group, which
         // is true after `fg` and false after `bg`.
@@ -327,6 +377,8 @@ final class ProcessSession: @unchecked Sendable {
     private func teardown() {
         stateSource?.cancel()
         stateSource = nil
+        guardian?.cancelAndWait()
+        guardian = nil
         noteSource?.cancel()
         noteSource = nil
         notes = nil

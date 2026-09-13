@@ -11,11 +11,14 @@ public struct PowerAssertionToken: Hashable, Sendable {
 /// Errors surfaced by the power-assertion layer.
 public enum PowerAssertionError: Error, Equatable, CustomStringConvertible {
     case creationFailed(code: Int32)
+    case attributionFailed(code: Int32)
 
     public var description: String {
         switch self {
         case .creationFailed(let code):
             return "Failed to create power assertion (IOReturn 0x\(String(code, radix: 16)))."
+        case .attributionFailed(let code):
+            return "Failed to attribute power assertion (IOReturn 0x\(String(code, radix: 16)))."
         }
     }
 }

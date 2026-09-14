@@ -38,11 +38,13 @@ guaranate 60 --reason "check-assertion" >/dev/null &
 pmset -g assertions | grep check-assertion
 ```
 
-Redirecting stdout matters: with the live frame writing to your terminal, an
-interactive shell suspends the backgrounded process the moment it configures the
-keyboard (`SIGTTOU`), leaving it stopped while it still holds the assertion.
-Sending output elsewhere skips the frame entirely, which is also what you want in
-a script.
+Redirecting stdout is a convenience, not a requirement: a backgrounded session
+leaves the keyboard alone — it never takes the terminal out of line mode behind
+your shell's back, and never eats a keystroke meant for it — so it keeps holding
+the assertion whether or not you send its frame somewhere else. Redirecting simply
+skips the per-second frame, which is what you want in a script or a log file. Note
+that `q` is a terminal shortcut: a background session cannot receive it, so end
+that one with `kill %1`.
 
 While the session is live you'll see the assertion attributed to the `guaranate`
 process. After it ends, the same `grep` returns nothing:

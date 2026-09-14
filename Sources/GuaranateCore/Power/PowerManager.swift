@@ -8,7 +8,11 @@ import IOKit.pwr_mgt
 public final class PowerManager: PowerAsserting, @unchecked Sendable {
     public init() {}
 
-    public func acquire(_ type: PowerAssertionType, reason: String) throws -> PowerAssertionToken {
+    public func acquire(
+        _ type: PowerAssertionType,
+        reason: String,
+        onBehalfOf pid: pid_t?
+    ) throws -> PowerAssertionToken {
         var assertionID = IOPMAssertionID(0)
         let result = IOPMAssertionCreateWithName(
             type.ioKitName as CFString,
@@ -20,10 +24,40 @@ public final class PowerManager: PowerAsserting, @unchecked Sendable {
         guard result == kIOReturnSuccess else {
             throw PowerAssertionError.creationFailed(code: result)
         }
+
+        if let pid {
+            var value = pid
+            guard let number = CFNumberCreate(nil, .sInt32Type, &value) else {
+                _ = IOPMAssertionRelease(assertionID)
+                throw PowerAssertionError.attributionFailed(code: kIOReturnNoMemory)
+            }
+            let attributionResult = IOPMAssertionSetProperty(
+                assertionID,
+                Self.onBehalfOfPIDKey,
+                number
+            )
+            guard attributionResult == kIOReturnSuccess else {
+                _ = IOPMAssertionRelease(assertionID)
+                throw PowerAssertionError.attributionFailed(code: attributionResult)
+            }
+        }
+
         return PowerAssertionToken(rawValue: assertionID)
     }
 
     public func release(_ token: PowerAssertionToken) {
         _ = IOPMAssertionRelease(token.rawValue)
     }
+}
+
+extension PowerManager {
+    /// `kIOPMAssertionOnBehalfOfPID`, which powerd documents as
+    /// `CFSTR("AssertionOnBehalfOfPID")` in `IOPMLibPrivate.h` but does not ship
+    /// in the public SDK. It is accounting metadata only — powerd takes no action
+    /// when the named process dies — but failure is still surfaced because the
+    /// watch contract promises that `pmset` reports the protected process.
+    /// `caffeinate` sets the same property the same way for its `-w` mode.
+    /// Computed rather than stored: a stored `CFString` global is not `Sendable`
+    /// under Swift 6 strict concurrency.
+    static var onBehalfOfPIDKey: CFString { "AssertionOnBehalfOfPID" as CFString }
 }

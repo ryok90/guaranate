@@ -24,9 +24,10 @@ The name is a play on **guaraná**, the Brazilian stimulant, and Apple's
 
 ## Status
 
-**v0.1 — native CLI foundation.** Timed sessions work end-to-end. The broader
-surface (`while`, `until`, `status`, `why`, external leases) is planned and
-tracked in [`PLAN.md`](PLAN.md).
+**v0.1 — native CLI foundation.** Timed sessions and process-lifetime sessions
+work end-to-end. The broader surface (`until`, `status`, `why`, external leases)
+is planned and tracked in [`PLAN.md`](PLAN.md). Rows marked *unreleased* are on
+`main` and ship in the next release.
 
 | Feature | State |
 | --- | --- |
@@ -36,7 +37,8 @@ tracked in [`PLAN.md`](PLAN.md).
 | Elapsed / remaining / end-time display | ✅ shipped |
 | Ctrl+C / SIGTERM cleanup, no stale assertion | ✅ shipped |
 | Non-TTY-friendly output | ✅ shipped |
-| `guaranate while -- <cmd>` | 🔜 v0.2 |
+| `guaranate while <cmd>` for a command's lifetime | ✅ unreleased |
+| `guaranate --watch <pid>` for a running process | ✅ unreleased |
 | `guaranate until <HH:MM>` | 🔜 v0.2 |
 | `status` / `why` / `--json` | 🔜 v0.3 |
 | `acquire` / `renew` / `release` leases | 🔜 v0.4 |
@@ -140,6 +142,53 @@ Press **`q`** or **Ctrl+C** to end a live session; it is also released
 automatically when the duration elapses or on `SIGTERM` — never leaving a stale
 sleep inhibitor behind.
 
+### Command and process lifetimes
+
+Hold the assertion for exactly as long as a command runs:
+
+```bash
+guaranate while npm test
+guaranate while ./build.sh --release
+guaranate while --display -- ./deploy.sh   # flags go before the command
+```
+
+A mistyped flag before the command is reported as an unknown option rather than
+run as a program; `--` is required for a program whose own name starts with `-`.
+
+The command gets its own process group and the controlling terminal — its output
+and input pass straight through, so there is no live frame, just a start line and
+a completion summary — and Guaranate exits with the command's own exit code
+(`128 + signal` if it is killed by one, `127` if the command is not found, `126`
+if it is not executable). Ctrl+C and Ctrl+Z behave exactly as they would without
+Guaranate in front: an interrupt arrives once, and Ctrl+Z stops the whole job for
+`fg` to resume, assertion held while it is paused. Signals sent to Guaranate are
+relayed to the command's whole process group, so its children are signalled with
+it rather than left behind, and the assertion is released only once the command
+has exited — a stopped session relays when it is continued, which `fg`, `bg`, your
+shell's `kill %job` and a closing terminal all do for you; a raw signal to a paused
+session waits for that continue, exactly as it would for any stopped process.
+Resuming re-decides the terminal, so a job put in the background with `bg` leaves
+your shell's keyboard alone. A signal the calling shell deliberately ignores stays
+ignored in the command, too. Guaranate's own start and
+completion lines go to stderr, so stdout carries the command's output alone and
+`while` is safe in a pipeline: a reader that goes away reaches the command exactly
+as it would unwrapped, and never the session.
+
+Hold the assertion until an already-running process exits:
+
+```bash
+guaranate --watch 4821
+guaranate -w 4821
+```
+
+Watching only observes: the process is never started, signaled, or killed, and
+Ctrl+C detaches and leaves it running. It works for processes owned by other
+users, is bound to the process's (pid, start time) pair so a recycled pid can
+never inherit the assertion, and attributes the assertion to the watched
+process — `pmset -g assertions` reports `Created for PID: 4821`. An unused pid
+is rejected before anything is acquired, and `--watch` cannot be combined with
+a duration.
+
 ### Assertion modes
 
 The default prevents **user-idle system sleep** while still letting the display
@@ -158,6 +207,7 @@ guaranate 2h --system     # prevent all system sleep
 | `-d`, `--display` | Also keep the display awake. |
 | `-s`, `--system` | Prevent all system sleep. |
 | `-r`, `--reason <text>` | Reason recorded on the power assertion. |
+| `-w`, `--watch <pid>` | Hold the assertion until that process exits. |
 | `-v`, `--version` | Print the version. |
 | `-h`, `--help` | Show help. |
 
@@ -197,12 +247,16 @@ menu-bar companion would depend on `GuaranateCore`, not the CLI executable.
 ```text
 Sources/
 ├── GuaranateCLI/            # commands, terminal rendering, process runtime
-│   ├── Guaranate.swift      # @main root command
-│   ├── TimedSession.swift   # acquire → render loop → guaranteed release
+│   ├── Guaranate.swift      # @main root command, subcommand container
+│   ├── TimedSession.swift   # timed / --watch session: render loop, release
+│   ├── ProcessSession.swift # while: spawn, forward signals, propagate exit
+│   ├── Commands/            # AssertionOptions, RunCommand, WhileCommand
 │   └── Output/
 │       └── TerminalRenderer.swift
 └── GuaranateCore/           # pure, IOKit-free logic (unit-tested)
     ├── Power/               # PowerAsserting protocol + IOKit PowerManager
+    ├── Process/             # ChildProcess, CommandInvocation, ExitStatus,
+    │                        # ProcessIdentity
     ├── Time/                # DurationParser, Deadline, TimeFormatting
     └── Terminal/            # ProgressBar (pure bar math for the live frame)
 ```

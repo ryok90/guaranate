@@ -24,7 +24,9 @@ guaranate while npm test      stay awake for exactly one command
 The timed form is the default command: see `guaranate run --help` for its full options, and `guaranate while --help` for the command form.
 
 ```sh
-guaranate [--help] [<subcommand>]
+guaranate [<duration>] [--display] [--system] [--reason <text>] [--version]
+guaranate --watch <pid> [--display] [--system] [--reason <text>] [--version]
+guaranate while [--display] [--system] [--reason <text>] <command> [<arguments> ...]
 ```
 
 | Option | Description | Default |

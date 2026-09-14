@@ -69,6 +69,12 @@ public struct SignalSupervision: Sendable {
     /// a signal the caller was already ignoring is the caller's choice, inherited
     /// across `exec`, and is left alone.
     public let changed: [Int32]
+
+    /// Creates the result returned by a signal-supervision adapter.
+    public init(notes: any SignalNoteReading, changed: [Int32]) {
+        self.notes = notes
+        self.changed = changed
+    }
 }
 
 /// Taking a process's signals over.

@@ -207,6 +207,8 @@ Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
   - Also: command not found exits 127, command not executable exits 126.
 - [x] `M2-T5` Guaranteed assertion release on every `while` exit path.
   - Acceptance: normal exit, child crash, and Ctrl+C all leave no stale assertion.
+  - Initial status lookup failure is an error exit, never a resumable child state
+    that can leave the session waiting indefinitely.
   - Refs: `scripts/smoke.sh` tests 3–5.
 - [x] `M2-T6` `while` session output + completion summary.
   - Amended: the original acceptance called for a live redrawn frame (Command,

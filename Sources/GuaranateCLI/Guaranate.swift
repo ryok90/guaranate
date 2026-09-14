@@ -16,8 +16,9 @@ struct Guaranate: ParsableCommand {
         commandName: "guaranate",
         abstract: "A developer-friendly macOS keep-awake CLI.",
         usage: """
-            guaranate [<duration>] [--watch <pid>] [--display] [--system] [--reason <text>]
-            guaranate while <command> [<arguments> ...]
+            guaranate [<duration>] [--display] [--system] [--reason <text>] [--version]
+            guaranate --watch <pid> [--display] [--system] [--reason <text>] [--version]
+            guaranate while [--display] [--system] [--reason <text>] <command> [<arguments> ...]
             """,
         discussion: """
             Keep your Mac awake when work needs to finish. Give your Mac some guaraná.

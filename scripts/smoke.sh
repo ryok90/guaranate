@@ -192,6 +192,14 @@ status=0
 (( status == 127 )) || fail "expected exit 127 for a missing command, got $status"
 echo "  ✓ missing command exits 127"
 
+unrunnable="$(mktemp)"
+chmod 600 "$unrunnable"
+status=0
+"$BIN" while --reason "$reason4" "$unrunnable" >/dev/null 2>&1 || status=$?
+rm -f "$unrunnable"
+(( status == 126 )) || fail "expected exit 126 for a non-executable command, got $status"
+echo "  ✓ non-executable command exits 126"
+
 wait_for_assertion "$reason4" absent || fail "stale assertion '$reason4' left behind"
 echo "  ✓ no stale assertion after any of them"
 
@@ -231,7 +239,7 @@ echo "▸ Test 6: --watch (releases when the watched process exits)"
 reason6="$tag-watch"
 /bin/sleep 3 &
 target_pid=$!
-"$BIN" --watch "$target_pid" --reason "$reason6" >/dev/null 2>&1 &
+"$BIN" -w "$target_pid" --reason "$reason6" >/dev/null 2>&1 &
 child_pid=$!
 
 wait_for_assertion "$reason6" present || fail "assertion '$reason6' never appeared in pmset while watching"
@@ -240,15 +248,22 @@ assertion_attributed_to "$reason6" "$target_pid" \
   || fail "assertion '$reason6' was not attributed to watched pid $target_pid"
 echo "  ✓ assertion attributed to the watched process"
 
+wait "$target_pid" 2>/dev/null || true
+target_pid=""
+wait_for_assertion "$reason6" absent \
+  || fail "watch session did not finish after the watched process exited"
+settled=0
+for _ in $(seq 1 50); do
+  session_state="$(ps -o state= -p "$child_pid" 2>/dev/null | tr -d ' ' || true)"
+  [[ -z "$session_state" || "$session_state" == Z* ]] && { settled=1; break; }
+  sleep 0.1
+done
+(( settled == 1 )) || fail "watch session released its assertion but did not exit"
 status=0
 wait "$child_pid" || status=$?
 child_pid=""
 (( status == 0 )) || fail "expected exit 0 when the watched process exits, got $status"
-echo "  ✓ exited 0 when the watched process exited"
-
-wait "$target_pid" 2>/dev/null || true
-target_pid=""
-wait_for_assertion "$reason6" absent || fail "stale assertion '$reason6' left behind"
+echo "  ✓ -w exited 0 when the watched process exited"
 echo "  ✓ no stale assertion after the watched process exited"
 
 # --- Test 7: SIGINT detaches from the watched process without killing it -------
@@ -288,6 +303,12 @@ status=0
 (( status == 64 )) || fail "expected exit 64 for an unused pid, got $status"
 if assertion_present "$reason8"; then fail "an assertion was acquired for a nonexistent pid"; fi
 echo "  ✓ rejected an unused pid without acquiring an assertion"
+
+status=0
+"$BIN" 1 --watch "$$" --reason "$reason8" >/dev/null 2>&1 || status=$?
+(( status == 64 )) || fail "expected exit 64 when combining a duration with --watch, got $status"
+if assertion_present "$reason8"; then fail "an assertion was acquired for conflicting duration/watch input"; fi
+echo "  ✓ rejected a duration combined with --watch"
 
 # --- Test 9: a forwarded signal tears down the command's own children ----------
 echo
@@ -401,8 +422,10 @@ echo "  ✓ redirected stdout is byte-for-byte the command's own output"
 err_file="$(mktemp)"
 "$BIN" while --reason "$reason12" /bin/sh -c 'true' >/dev/null 2>"$err_file"
 grep -q "Guaranate" "$err_file" || fail "the start line did not reach stderr"
+grep -q "finished" "$err_file" || fail "the completion summary did not reach stderr"
+grep -q "assertion released" "$err_file" || fail "the release summary did not reach stderr"
 rm -f "$err_file"
-echo "  ✓ the session's own lines go to stderr"
+echo "  ✓ the session's start and completion lines go to stderr"
 
 # --- Test 13: output failures must not end a session ---------------------------
 echo

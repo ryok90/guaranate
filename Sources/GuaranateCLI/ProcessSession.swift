@@ -129,7 +129,9 @@ final class ProcessSession: @unchecked Sendable {
         switch child.wait(pid) {
         case .ended(let status):
             finish(status: status)
-        case .stopped, .running, .unavailable:
+        case .unavailable:
+            finishWithUnknownStatus()
+        case .stopped, .running:
             child.resume(pid)
         }
 

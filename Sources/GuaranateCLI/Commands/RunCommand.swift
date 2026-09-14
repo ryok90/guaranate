@@ -50,11 +50,10 @@ struct RunCommand: ParsableCommand {
             _ = try parseSeconds(duration)
         }
 
-        if let watch {
+        if watch != nil {
             guard duration == nil else {
                 throw ValidationError("Choose either a duration or --watch <pid>, not both.")
             }
-            _ = try lookUp(watch)
         }
     }
 
@@ -64,7 +63,8 @@ struct RunCommand: ParsableCommand {
             return
         }
 
-        // validate() guarantees a supplied duration parses and a supplied pid exists.
+        // Resolve a watched pid exactly once so a recycled pid cannot replace an
+        // identity accepted during validation before the session registers it.
         let target = try watch.map { try lookUp($0) }
         let seconds = try duration.map { try parseSeconds($0) }
         let session = TimedSession(

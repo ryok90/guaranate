@@ -41,12 +41,9 @@ function resolveBinary() {
     return explicit;
   }
 
-  for (const candidate of ['.build/release/guaranate', '.build/debug/guaranate']) {
-    const path = join(repoRoot, candidate);
-    if (existsSync(path)) return path;
-  }
-
-  process.stderr.write('No guaranate binary found; running `swift build`…\n');
+  // Without an explicit binary, build the current sources. Reusing whichever
+  // configuration happened to exist first can silently regenerate stale docs.
+  process.stderr.write('Building guaranate for CLI reference…\n');
   run('swift', ['build'], { stdio: ['ignore', 'inherit', 'inherit'] });
   return join(repoRoot, '.build/debug/guaranate');
 }
@@ -94,8 +91,28 @@ function fullName(command) {
   return [...(command.superCommands ?? []), command.commandName].join(' ');
 }
 
+function rootUsage(binary) {
+  const lines = run(binary, ['--help']).split('\n');
+  const start = lines.findIndex((line) => line.startsWith('USAGE: '));
+  if (start < 0) return undefined;
+
+  const usage = [lines[start].slice('USAGE: '.length)];
+  for (const line of lines.slice(start + 1)) {
+    if (!line.trim()) break;
+    if (!/^\s/.test(line)) break;
+    usage.push(line.trim());
+  }
+  return usage.join('\n');
+}
+
 function synopsis(command) {
-  const args = (command.arguments ?? []).filter(isVisible);
+  const defaultCommand = visibleSubcommands(command).find(
+    (subcommand) => subcommand.commandName === command.defaultSubcommand,
+  );
+  // A default subcommand's arguments are accepted at the root even though the
+  // dump lists them on the child command. Project them here so the published root
+  // synopsis documents bare durations, --watch, and --version.
+  const args = ((defaultCommand ?? command).arguments ?? []).filter(isVisible);
   const positionals = args.filter((argument) => argument.kind === 'positional');
   const options = args.filter((argument) => argument.kind !== 'positional');
   // A passthrough positional consumes every token after it, including tokens that
@@ -140,7 +157,7 @@ function discussionBlocks(discussion) {
   });
 }
 
-function commandSection(command, level, { isDefault = false } = {}) {
+function commandSection(command, level, { isDefault = false, usage } = {}) {
   const heading = '#'.repeat(level);
   // The default subcommand's name is optional, which readers need to see next to
   // the heading rather than buried in the command's own discussion.
@@ -149,7 +166,7 @@ function commandSection(command, level, { isDefault = false } = {}) {
   if (command.abstract) lines.push(command.abstract, '');
   if (command.discussion) lines.push(...discussionBlocks(command.discussion));
 
-  lines.push('```sh', synopsis(command), '```', '');
+  lines.push('```sh', usage ?? synopsis(command), '```', '');
 
   const args = (command.arguments ?? []).filter(isVisible);
   const positionals = args.filter((argument) => argument.kind === 'positional');
@@ -169,7 +186,7 @@ function commandSection(command, level, { isDefault = false } = {}) {
   return lines.join('\n');
 }
 
-function page({ command, version }) {
+function page({ command, version, usage }) {
   const generator = relative(repoRoot, fileURLToPath(import.meta.url));
   return [
     '---',
@@ -182,7 +199,7 @@ function page({ command, version }) {
     `Generated from \`guaranate --experimental-dump-help\` for **guaranate ${version}**, so`,
     'every documented flag and short alias matches the shipped binary.',
     '',
-    commandSection(command, 2),
+    commandSection(command, 2, { usage }),
   ].join('\n');
 }
 
@@ -191,7 +208,7 @@ function page({ command, version }) {
 const binary = resolveBinary();
 const dump = JSON.parse(run(binary, ['--experimental-dump-help']));
 const version = run(binary, ['--version']).trim();
-const rendered = page({ command: dump.command, version });
+const rendered = page({ command: dump.command, version, usage: rootUsage(binary) });
 
 if (check) {
   const committed = existsSync(outputPath) ? readFileSync(outputPath, 'utf8') : '';

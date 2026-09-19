@@ -9,9 +9,11 @@ Intel.
 ## Homebrew
 
 ```bash
-brew tap ryok90/guaranate
-brew install guaranate
+brew install ryok90/guaranate/guaranate
 ```
+
+The fully-qualified formula name taps `ryok90/guaranate` for you; no separate
+`brew tap` step is needed.
 
 ## Release binary
 

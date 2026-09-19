@@ -94,22 +94,24 @@ Zephyr deploys **during** `npm run build` — there is no separate upload step, 
 a git repository must be initialized (CI checkouts satisfy this). Consequences:
 
 - `output` must stay `'static'`; Zephyr supports Astro's SSG mode only.
-- Authentication is a CI token in `ZE_CI_TOKEN`, stored as the `ZEPHYR_CI_TOKEN`
-  repository secret and created under Zephyr's *Organization Settings → CI
-  tokens*. Personal/server tokens (`ZE_SECRET_TOKEN`) are deprecated for
-  deployments.
+- Authentication is a Zephyr token in `ZE_SECRET_TOKEN`, stored as the
+  repository secret of the same name.
 - `ZE_FAIL_BUILD: true` is set in CI. Without it, Zephyr logs deployment errors
   and lets the build pass.
 - `SKIP_ZEPHYR=true` drops the integration from the Astro config, producing a
-  plain static build. CI sets it whenever no `ZE_CI_TOKEN` is available, because
-  with no credentials the plugin blocks on an interactive auth flow until it times
-  out — five minutes for a build that takes two seconds.
+  plain static build. CI sets it whenever no `ZE_SECRET_TOKEN` is available,
+  because with no credentials the plugin blocks on an interactive auth flow
+  until it times out — five minutes for a build that takes two seconds.
 
-`.github/workflows/docs.yml` deploys pushes to `main` — which Zephyr serves from
-the production domain, https://guaranate.dev — and internal pull requests, which
-get their own immutable preview URL. It build-verifies pull requests from forks,
-which cannot read repository secrets, and so intentionally run without a token
-and without deploying.
+`.github/workflows/docs.yml` deploys **every merge to `main`** — which Zephyr
+serves from the production domain, https://guaranate.dev — and internal pull
+requests, which get their own immutable preview URL. It build-verifies pull
+requests from forks, which cannot read repository secrets, and so intentionally
+run without a token and without deploying.
+
+Deployment is intentionally detached from the binary's release: publishing the
+site never waits for a version to be cut, and cutting a release never
+republishes the site. Whatever is on `main` is what guaranate.dev serves.
 
 Building locally deploys if you are logged in to Zephyr. `astro preview` loads the
 integration too, so with an expired session it stops and waits for a browser

@@ -395,8 +395,8 @@ no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
   - Refs: `docs-website/scripts/gen-cli-reference.mjs`, `.github/workflows/ci.yml`.
 - [x] `DOCS-T3` Zephyr Cloud deployment wired into the docs build.
   - Acceptance: `withZephyr()` in the Astro config with `output: 'static'`;
-    `.github/workflows/docs.yml` deploys `main` and internal PRs with `ZE_CI_TOKEN`
-    + `ZE_FAIL_BUILD=true` (a deploy or plugin error fails the job) and
+    `.github/workflows/docs.yml` deploys `main` and internal PRs with
+    `ZE_SECRET_TOKEN` + `ZE_FAIL_BUILD=true` (a deploy or plugin error fails the job) and
     build-verifies fork PRs without a token; internal PRs surface the preview URL.
   - Refs: `.github/workflows/docs.yml`, `docs-website/README.md`.
 - [x] `DOCS-T4` CI path split between Swift and docs.
@@ -440,12 +440,13 @@ no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
     plus `npm run gen:cli:check` still pass from `docs-website/`.
   - Refs: `docs/agents/`, `.github/workflows/docs.yml`, `.github/workflows/ci.yml`.
 
-- [ ] `DOCS-T11` Docs deployment rides along with the release.
-  - Acceptance: a `v*` release deploys the docs built from that exact tag to the
-    production Zephyr environment after the binary is published; a failed release
-    does not deploy docs; the Zephyr token/env logic lives in one reusable
-    workflow shared by `docs.yml` and `release.yml`.
-  - Refs: #31, `.github/workflows/release.yml`, `.github/workflows/docs.yml`.
+- [-] `DOCS-T11` Docs deployment rides along with the release. **Dropped**: docs
+  and the binary release are deliberately unattached. Every merge to `main`
+  deploys the site, so a docs fix reaches guaranate.dev without cutting a
+  version and a release is never held up by the site. The cost is accepted: a
+  release's generated CLI reference is published when its PR merges, not when
+  the tag is pushed.
+  - Refs: #31, `.github/workflows/docs.yml`.
 - [ ] `DOCS-T12` Dispatchable docs-only deployment.
   - Acceptance: `workflow_dispatch` takes a `ref` (branch or tag, default `main`)
     and an explicit production-or-preview target, and deploys only the docs — no

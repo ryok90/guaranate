@@ -5,8 +5,8 @@ description: What Guaranate ships today and which commands are still planned.
 
 Guaranate is pre-1.0. This page is the honest boundary between the two: a command
 listed under "Planned" does not exist in the binary yet, and no guide on this site
-documents it as if it did. Guides do cover what is on `main` but not yet in a
-tagged release — the section below says which is which.
+documents it as if it did. Everything the guides cover is in the latest tagged
+release.
 
 Sequencing, task IDs, and acceptance criteria live in
 [`PLAN.md`](https://github.com/ryok90/guaranate/blob/main/PLAN.md); product
@@ -15,7 +15,7 @@ intent lives in
 
 ## In the latest release
 
-Everything here is in v0.1.0.
+Everything here is in v0.2.0.
 
 | Feature | Documented in |
 | --- | --- |
@@ -27,14 +27,6 @@ Everything here is in v0.1.0.
 | Live progress frame, with `q` to quit | [The live frame](/guides/timed-sessions/#the-live-frame) |
 | Guaranteed release on expiry, `q`, `SIGINT`, `SIGTERM` | [Ending a session](/guides/timed-sessions/#ending-a-session) |
 | Non-TTY-friendly output | [Scripts, pipes, and CI](/guides/timed-sessions/#scripts-pipes-and-ci) |
-
-## On `main`, in the next release
-
-Built and documented, but not in a tagged release yet: install from source to use
-these today.
-
-| Feature | Documented in |
-| --- | --- |
 | `guaranate while <cmd>` | [Wrapping a command](/guides/process-sessions/#wrapping-a-command) |
 | `guaranate --watch <pid>` | [Watching a process that already runs](/guides/process-sessions/#watching-a-process-that-already-runs) |
 
@@ -45,7 +37,7 @@ reach for today.
 
 | Planned | Target | What it will do |
 | --- | --- | --- |
-| `guaranate until <HH:MM>` | v0.2 | Stay awake until the next occurrence of a clock time. |
+| `guaranate until <HH:MM>` | v0.3 | Stay awake until the next occurrence of a clock time. |
 | `status` / `why` | v0.3 | Explain what is keeping the Mac awake, and since when. |
 | `--json` output contract | v0.3 | Stable machine-readable output for scripts. |
 | `acquire` / `renew` / `release` | v0.4 | TTL-based leases for external tools, released automatically if a caller stops renewing. |

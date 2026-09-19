@@ -68,8 +68,7 @@ cd docs-website && npm install && npm run dev
 ### With Homebrew
 
 ```bash
-brew tap ryok90/guaranate
-brew install guaranate
+brew install ryok90/guaranate/guaranate
 ```
 
 ### From a release binary

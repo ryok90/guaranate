@@ -12,6 +12,12 @@ dated, versioned section.
 
 ## [Unreleased]
 
+### Changed
+
+- Homebrew install is a single command:
+  `brew install ryok90/guaranate/guaranate` taps and installs in one step, so
+  the separate `brew tap` line is gone from the README and the install guide.
+
 ## [0.2.0] - 2026-09-19
 
 ### Added

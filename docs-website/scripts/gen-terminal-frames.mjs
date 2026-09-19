@@ -227,7 +227,7 @@ const PAD_Y = 22;
  * aligned with the metrics table even if the reader's monospace fallback font
  * measures block glyphs slightly differently.
  */
-function svg(frame, { title }) {
+function svg(frame, { title, background = '#17120f' }) {
   const lines = frame.split('\n');
   const columns = Math.max(...lines.map((line) => columnWidth(line.replace(/\u001b\[[0-9;]*m/g, ''))));
   const width = Math.round(columns * CELL + PAD_X * 2);
@@ -258,7 +258,7 @@ function svg(frame, { title }) {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeXML(title)}">
   <title>${escapeXML(title)}</title>
-  <rect width="${width}" height="${height}" rx="12" fill="#17120f"/>
+  ${background ? `<rect width="${width}" height="${height}" rx="12" fill="${background}"/>` : ''}
   <g font-family="'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#e8e2df" xml:space="preserve">
     ${body}
   </g>
@@ -271,9 +271,9 @@ function svg(frame, { title }) {
 const binary = resolveBinary();
 mkdirSync(outputDir, { recursive: true });
 
-function write(name, frame, title) {
+function write(name, frame, title, options = {}) {
   const path = join(outputDir, name);
-  writeFileSync(path, svg(frame, { title }));
+  writeFileSync(path, svg(frame, { title, ...options }));
   process.stdout.write(`Wrote ${relative(repoRoot, path)}\n`);
 }
 
@@ -282,16 +282,23 @@ function write(name, frame, title) {
 const timed = frames(
   await capture([binary, '20', '--reason', 'release build'], { runFor: 20_000, interrupt: false }),
 );
-write('timed-session.svg', timed[12], 'Guaranate running a timed session: a progress bar at 60%, elapsed, remaining, and end time');
+write('timed-session.svg', timed[12], 'Guaranate running a timed session: a progress bar at 65%, elapsed, remaining, and end time');
 write('completion-card.svg', timed.at(-1), 'Guaranate after a timed session: a full progress bar and a summary card');
 
-// A watch session needs something to watch: a sleep of our own, which outlives
-// the capture and is cleaned up afterwards.
+// The same frame again for the landing page, where it sits inside a terminal
+// window the page draws itself — so this one gets no background of its own.
+write(
+  'hero-session.svg',
+  timed[12],
+  'Guaranate running a timed session: a progress bar at 65%, elapsed, remaining, and end time',
+  { background: null },
+);
+
+// A watch session needs something to watch: a sleep of our own, which
+// outlives the capture and is cleaned up afterwards.
 const watched = spawn('sleep', ['120'], { stdio: 'ignore' });
 try {
-  const watch = frames(
-    await capture([binary, '--watch', String(watched.pid)], { runFor: 4_000 }),
-  );
+  const watch = frames(await capture([binary, '--watch', String(watched.pid)], { runFor: 4_000 }));
   write('watch-session.svg', watch.at(-2), 'Guaranate watching a running process: a spinner, elapsed time, and the watched pid');
 } finally {
   spawnSync('kill', [String(watched.pid)]);

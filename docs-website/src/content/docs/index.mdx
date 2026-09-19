@@ -22,15 +22,20 @@ hero:
 ---
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import TerminalWindow from '../../components/TerminalWindow.astro';
 
-```bash
-guaranate 2h              # stay awake for two hours
-guaranate                 # stay awake until interrupted
+<TerminalWindow title="guaranate — zsh">
+
+```bash frame="none"
 guaranate while npm test  # stay awake for exactly one command
 guaranate --watch 4821    # stay awake until pid 4821 exits
+guaranate                 # stay awake until interrupted
+guaranate 2h              # stay awake for two hours
 ```
 
-![A Guaranate timed session at 65%: a green-to-red gradient progress bar above elapsed, remaining, end time, and the assertion mode](../../assets/frames/timed-session.svg)
+![Guaranate part-way through a two-hour session: a green-to-red gradient progress bar above elapsed, remaining, end time, and the assertion mode](../../assets/frames/hero-session.svg)
+
+</TerminalWindow>
 
 <CardGrid stagger>
   <Card title="Human durations" icon="moon">

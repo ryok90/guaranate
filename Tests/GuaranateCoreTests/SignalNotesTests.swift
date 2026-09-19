@@ -76,9 +76,9 @@ final class SignalNotesTests: XCTestCase {
         XCTAssertEqual(notes.drain(), [], "the note is consumed by the drain that reports it")
     }
 
-    /// The order a session installs in: blocked, registered, then ignored. Blocked
-    /// is what makes it airtight — the signal can neither take its default action
-    /// nor be discarded by the disposition change, and its note is still recorded.
+    /// Once a watch exists, blocking the final disposition swap preserves the note:
+    /// the signal can neither act on this thread nor be discarded before the watch
+    /// records it.
     func testRecordsASignalThatArrivesDuringABlockedInstall() throws {
         var notes: (any SignalNoteReading)?
         defer { notes?.close() }

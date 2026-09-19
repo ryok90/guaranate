@@ -127,9 +127,9 @@ public struct KqueueSignalSupervisor: SignalSupervising {
 /// A disposition is a property of the process, not of a thread, which is what makes
 /// this the only guard that holds everywhere: from here on, no thread can take a
 /// signal's default action. A handler is used rather than `SIG_IGN` because
-/// `SIG_IGN` discards what is already pending, and this runs *before* the watch
-/// exists — the point being to survive that gap, not to erase it. The handler does
-/// nothing: arrivals are read from the watch, never from here.
+/// `SIG_IGN` discards what is already pending. The watch already exists when this
+/// runs, so the handler can do nothing: arrivals are read from the watch, never from
+/// here.
 ///
 /// The returned signals are the ones whose disposition this changed. A signal the
 /// surrounding shell was already ignoring is the caller's choice, inherited across
@@ -146,11 +146,11 @@ func claimSignals(_ signals: [Int32]) -> [Int32] {
 
 /// Runs `body` with `signals` blocked, restoring the previous mask afterwards.
 ///
-/// Blocking is what keeps a signal from being *lost* while the watch is being
-/// established: a blocked signal stays pending instead of reaching a handler that
-/// has nowhere to record it, and its note is recorded when it arrives regardless.
-/// Pair it with `claimSignals(_:)`, which is what keeps the signal from *ending*
-/// this process: masks are per-thread, dispositions are not.
+/// The watch and temporary handlers already exist when this runs. Blocking keeps a
+/// signal on this thread from reaching a handler midway through the final swap to
+/// `SIG_IGN`; its watch note survives either disposition. Pair it with
+/// `claimSignals(_:)`, which keeps a signal from *ending* this process: masks are
+/// per-thread, dispositions are not.
 ///
 /// A mask this narrow cannot fail — `sigprocmask` rejects only an invalid `how`,
 /// and there is one here — but the result is checked rather than assumed, and a

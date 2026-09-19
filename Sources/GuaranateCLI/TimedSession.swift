@@ -6,7 +6,7 @@ import GuaranateCore
 /// watched process exiting, or on user interruption.
 ///
 /// Lifecycle:
-/// 1. Acquire the requested power assertion.
+/// 1. Establish signal supervision, then acquire the requested power assertion.
 /// 2. Render elapsed / remaining / end time once per second.
 /// 3. On expiry, on the watched process exiting, or on `q`/Ctrl+C (SIGINT) or
 ///    SIGTERM: release the assertion and exit.

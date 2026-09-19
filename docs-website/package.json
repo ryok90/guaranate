@@ -22,7 +22,7 @@
   "devDependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource-variable/space-grotesk": "^5.3.0",
-    "zephyr-astro-integration": "^1.2.4"
+    "zephyr-astro-integration": "^1.4.0"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

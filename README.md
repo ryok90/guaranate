@@ -24,10 +24,9 @@ The name is a play on **guaraná**, the Brazilian stimulant, and Apple's
 
 ## Status
 
-**v0.1 — native CLI foundation.** Timed sessions and process-lifetime sessions
-work end-to-end. The broader surface (`until`, `status`, `why`, external leases)
-is planned and tracked in [`PLAN.md`](PLAN.md). Rows marked *unreleased* are on
-`main` and ship in the next release.
+**v0.2 — process lifecycle.** Timed sessions and process-lifetime sessions work
+end-to-end and are shipped. The broader surface (`until`, `status`, `why`,
+external leases) is planned and tracked in [`PLAN.md`](PLAN.md).
 
 | Feature | State |
 | --- | --- |
@@ -37,9 +36,9 @@ is planned and tracked in [`PLAN.md`](PLAN.md). Rows marked *unreleased* are on
 | Elapsed / remaining / end-time display | ✅ shipped |
 | Ctrl+C / SIGTERM cleanup, no stale assertion | ✅ shipped |
 | Non-TTY-friendly output | ✅ shipped |
-| `guaranate while <cmd>` for a command's lifetime | ✅ unreleased |
-| `guaranate --watch <pid>` for a running process | ✅ unreleased |
-| `guaranate until <HH:MM>` | 🔜 v0.2 |
+| `guaranate while <cmd>` for a command's lifetime | ✅ shipped |
+| `guaranate --watch <pid>` for a running process | ✅ shipped |
+| `guaranate until <HH:MM>` | 🔜 v0.3 |
 | `status` / `why` / `--json` | 🔜 v0.3 |
 | `acquire` / `renew` / `release` leases | 🔜 v0.4 |
 

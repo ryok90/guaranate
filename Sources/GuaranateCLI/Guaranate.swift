@@ -10,7 +10,7 @@ import ArgumentParser
 @main
 struct Guaranate: ParsableCommand {
     /// The single source of truth for the CLI version, printed by `-v`/`--version`.
-    static let versionString = "0.1.0"
+    static let versionString = "0.2.0"
 
     static let configuration = CommandConfiguration(
         commandName: "guaranate",

@@ -12,6 +12,8 @@ dated, versioned section.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-19
+
 ### Added
 
 - Install via Homebrew: `brew tap ryok90/guaranate && brew install guaranate`
@@ -125,5 +127,6 @@ dated, versioned section.
 - The timed-session `Ends` time now includes seconds (`HH:mm:ss`) in both the
   live frame and the non-TTY start line (#3).
 
-[Unreleased]: https://github.com/ryok90/guaranate/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ryok90/guaranate/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ryok90/guaranate/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ryok90/guaranate/releases/tag/v0.1.0

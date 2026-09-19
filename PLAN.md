@@ -113,6 +113,10 @@ and watching an already-running process.
 Refs: spec "Flagship workflow", "Keep awake while an existing process runs",
 "v0.2", "Process model" (in-process case).
 
+Released as `v0.2.0` (2026-09-19) with `while` and `--watch`. `until` did not
+make the cut: `M2-T8` and the `until` half of `M2-T9` stay in this milestone by
+id, but now target v0.3.
+
 - [x] `M2-T1` `ChildProcess` abstraction in `GuaranateCore`.
   - Acceptance: launch a command with argv; observe exit; testable without a real long-running process.
   - Shipped as `ChildLaunching` (protocol) + `ChildProcess` (`posix_spawnp`), with

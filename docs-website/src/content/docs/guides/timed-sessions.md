@@ -109,24 +109,20 @@ is the only thing that explains *why* a machine is awake an hour later.
 ## The live frame
 
 On a color terminal, a running session renders a gradient progress bar, a
-metrics table, and a centered header, sized to the terminal width:
+dot-leader metrics table, and a centered header, all sized to the terminal
+width:
 
-```text
-             🌿 Guaranate
+![A Guaranate timed session at 65%: a green-to-red gradient progress bar above elapsed, remaining, end time, and the assertion mode](../../../assets/frames/timed-session.svg)
 
-  ▏██████████████░░░░░░░░░░░░░░▕   50%
+The bar fills green and warms towards berry red as the deadline approaches, the
+assertion rows are color-coded (amber when `--display` keeps the screen on), and
+the cursor stays hidden until the frame is gone. When the session completes, the
+frame is replaced by a summary card:
 
-  Elapsed       · · · · · · · 00:42:17
-  Remaining     · · · · · · · 01:17:43
-  Ends          · · · · · · · 23:43:07
-  Assertion     · · · · · System sleep
-  Display       · · · · · ·  May sleep
+![A completed Guaranate session: a full progress bar with a check mark, the time stayed awake, and the assertion released](../../../assets/frames/completion-card.svg)
 
-Press Ctrl+C or q to stop
-```
-
-The cursor is hidden while the frame is live and restored on exit, and a summary
-card is printed when the session completes.
+Both images are captures of the real binary, rendered by
+`npm run gen:frames` — no mock-ups.
 
 ### Terminals that can't do that
 

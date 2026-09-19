@@ -219,18 +219,7 @@ an unrelated new process can never silently inherit the assertion.
 The live frame swaps the progress bar for a spinner and adds a `Watching` row
 naming the process:
 
-```text
-             🌿 Guaranate
-
-  ⠋ Awake — until the watched process exits
-
-  Elapsed       · · · · · · · 00:03:12
-  Watching      · · · ·  4821 (ffmpeg)
-  Assertion     · · · · · System sleep
-  Display       · · · · · ·  May sleep
-
-Press Ctrl+C or q to stop
-```
+![A Guaranate watch session: a spinner reading "Awake — until the watched process exits", elapsed time, and the watched pid](../../../assets/frames/watch-session.svg)
 
 The assertion is attributed to the watched process, not just to Guaranate, so
 `pmset` points at the real work — and its default reason names it too:

@@ -5,9 +5,9 @@ import GuaranateCore
 /// Supervises a child command, holding a power assertion for exactly its lifetime.
 ///
 /// Lifecycle:
-/// 1. Acquire the requested power assertion.
+/// 1. Establish signal supervision, then acquire the requested power assertion.
 /// 2. Launch the command suspended, as the leader of its own process group.
-/// 3. Hand it the controlling terminal, announce the session, let it run.
+/// 3. Announce the session, hand it the controlling terminal, let it run.
 /// 4. Relay termination signals to its group, mirror its stops, wait for it to exit.
 /// 5. Take the terminal back, release the assertion, exit with the command's own code.
 ///
@@ -20,8 +20,8 @@ final class ProcessSession: @unchecked Sendable {
     static let forwardedSignals: [Int32] = [SIGINT, SIGTERM, SIGHUP]
 
     /// Signals whose disposition this process took over and must therefore restore
-    /// in the child, recorded as they are taken so an inherited `SIG_IGN` is never
-    /// undone. See `take(_:)`.
+    /// in the child, recorded by `SignalSupervising` so an inherited `SIG_IGN` is
+    /// never undone.
     private var signalsToResetInChild: [Int32] = []
 
     private let invocation: CommandInvocation

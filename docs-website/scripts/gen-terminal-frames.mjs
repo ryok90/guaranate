@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Captures real Guaranate terminal frames and renders them as SVG.
+// Captures real Guaranate terminal frames as colored HTML.
 //
 // The live frame is the part of Guaranate that a screenshot-free doc cannot
 // honestly describe: a gradient progress bar, dimmed dot leaders, and
@@ -7,13 +7,15 @@
 // renderer changes, so these snapshots come from the real binary, driven under
 // a pty by script(1) with a terminal that advertises truecolor.
 //
-// The rendered SVGs are committed because the docs site builds on Linux, where
-// the macOS-only binary cannot run. They are not checkable in CI the way the
-// CLI reference is: every frame carries a wall clock, so two captures never
-// match byte for byte. Re-run this script when the renderer changes.
+// Each capture becomes the inner HTML of a `<pre>` — real text, one span per
+// styled run — which `TerminalFrame.astro` drops into the page. The fragments
+// are committed because the docs site builds on Linux, where the macOS-only
+// binary cannot run. They are not checkable in CI the way the CLI reference
+// is: every frame carries a wall clock, so two captures never match byte for
+// byte. Re-run this script when the renderer changes.
 //
 // Usage:
-//   node scripts/gen-terminal-frames.mjs     # capture and write the SVGs
+//   node scripts/gen-terminal-frames.mjs     # capture and write the fragments
 //
 // Set GUARANATE_BIN to use an already-built binary.
 
@@ -24,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 
 const docsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(docsDir, '..');
-const outputDir = join(docsDir, 'src/assets/frames');
+const outputDir = join(docsDir, 'src/components/frames');
 
 // --- The binary --------------------------------------------------------------
 
@@ -161,47 +163,19 @@ function applySGR(style, params) {
 }
 
 /**
- * Terminal columns a string occupies.
+ * One line of a frame as styled runs.
  *
- * Only emoji matter here: the mascot leaf in the header takes two cells, so
- * counting code points would place everything after it one column early.
- */
-function columnWidth(text) {
-  let width = 0;
-  for (const character of text) {
-    const code = character.codePointAt(0);
-    width += code >= 0x1f300 && code <= 0x1faff ? 2 : 1;
-  }
-  return width;
-}
-
-const EMOJI = /([\u{1F300}-\u{1FAFF}])/u;
-
-/**
- * One line of a frame as styled runs, each with the column it starts at.
- *
- * Two things are deliberate. Emoji become runs of their own: a text element
- * that mixes them with spaces is shaped with the emoji font throughout by some
- * renderers, which widens every space and pushes the rest of the line out of
- * the grid. And the padding spaces a terminal uses for alignment are dropped,
- * because every run carries its own column — browsers collapse leading and
- * trailing whitespace in SVG text, so relying on it would glue runs together.
+ * The text is kept verbatim, spaces included: it is laid out by a `<pre>` on
+ * the page, so the terminal's own padding is what aligns the columns.
  */
 function runs(line) {
   const style = { ...DEFAULT_STYLE };
   const result = [];
-  let column = 0;
   const pattern = /\u001b\[([0-9;]*)m/g;
   let cursor = 0;
   let match;
   const push = (text) => {
-    for (const part of text.split(EMOJI)) {
-      if (!part) continue;
-      const leading = part.length - part.trimStart().length;
-      const trimmed = part.trim();
-      if (trimmed) result.push({ text: trimmed, column: column + leading, ...style });
-      column += columnWidth(part);
-    }
+    if (text) result.push({ text, ...style });
   };
   while ((match = pattern.exec(line)) !== null) {
     push(line.slice(cursor, match.index));
@@ -212,58 +186,34 @@ function runs(line) {
   return result;
 }
 
-const escapeXML = (text) =>
+const escapeHTML = (text) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-const CELL = 8.4; // advance width of the 14px monospace grid
-const LINE = 21;
-const PAD_X = 18;
-const PAD_Y = 22;
-
 /**
- * Renders a frame as a standalone SVG.
+ * Renders a frame as the inner HTML of a `<pre>`: one span per styled run.
  *
- * Runs are positioned by column rather than flowed, so the progress bar stays
- * aligned with the metrics table even if the reader's monospace fallback font
- * measures block glyphs slightly differently.
+ * Text rather than an image, so the frame is selectable, searchable, scales
+ * with the reader's font size, and costs no extra request. `TerminalFrame`
+ * owns the `<pre>` itself; everything here carries its colors inline, exactly
+ * as the terminal emitted them.
  */
-function svg(frame, { title, background = '#17120f' }) {
-  const lines = frame.split('\n');
-  const columns = Math.max(...lines.map((line) => columnWidth(line.replace(/\u001b\[[0-9;]*m/g, ''))));
-  const width = Math.round(columns * CELL + PAD_X * 2);
-  const height = Math.round(lines.length * LINE + PAD_Y * 2);
-
-  const body = lines
-    .map((line, row) => {
-      const y = PAD_Y + row * LINE + 14;
-      const spans = runs(line)
-        .filter((run) => run.text.trim() !== '')
-        .map((run) => {
-          const attrs = [
-            `x="${(PAD_X + run.column * CELL).toFixed(1)}"`,
-            `y="${y}"`,
-            run.color ? `fill="${run.color}"` : null,
-            run.bold ? 'font-weight="700"' : null,
-            run.dim ? 'opacity="0.55"' : null,
-          ]
-            .filter(Boolean)
-            .join(' ');
-          return `<text ${attrs}>${escapeXML(run.text)}</text>`;
+function html(frame) {
+  return `${frame
+    .split('\n')
+    .map((line) =>
+      runs(line)
+        .map(({ text, color, bold, dim }) => {
+          const css = [
+            color ? `color:${color}` : null,
+            bold ? 'font-weight:700' : null,
+            dim ? 'opacity:.55' : null,
+          ].filter(Boolean);
+          const escaped = escapeHTML(text);
+          return css.length ? `<span style="${css.join(';')}">${escaped}</span>` : escaped;
         })
-        .join('');
-      return spans;
-    })
-    .filter(Boolean)
-    .join('\n    ');
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeXML(title)}">
-  <title>${escapeXML(title)}</title>
-  ${background ? `<rect width="${width}" height="${height}" rx="12" fill="${background}"/>` : ''}
-  <g font-family="'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#e8e2df" xml:space="preserve">
-    ${body}
-  </g>
-</svg>
-`;
+        .join(''),
+    )
+    .join('\n')}\n`;
 }
 
 // --- Main ---------------------------------------------------------------------
@@ -271,35 +221,27 @@ function svg(frame, { title, background = '#17120f' }) {
 const binary = resolveBinary();
 mkdirSync(outputDir, { recursive: true });
 
-function write(name, frame, title, options = {}) {
+function write(name, frame) {
   const path = join(outputDir, name);
-  writeFileSync(path, svg(frame, { title, ...options }));
+  writeFileSync(path, html(frame));
   process.stdout.write(`Wrote ${relative(repoRoot, path)}\n`);
 }
 
 // A timed session: captured 12s into a 20s run, so the bar is partly filled,
-// and again at the end for the completion card.
+// and again at the end for the completion card. The landing page reuses the
+// running frame, so there is no separate capture for it.
 const timed = frames(
   await capture([binary, '20', '--reason', 'release build'], { runFor: 20_000, interrupt: false }),
 );
-write('timed-session.svg', timed[12], 'Guaranate running a timed session: a progress bar at 65%, elapsed, remaining, and end time');
-write('completion-card.svg', timed.at(-1), 'Guaranate after a timed session: a full progress bar and a summary card');
-
-// The same frame again for the landing page, where it sits inside a terminal
-// window the page draws itself — so this one gets no background of its own.
-write(
-  'hero-session.svg',
-  timed[12],
-  'Guaranate running a timed session: a progress bar at 65%, elapsed, remaining, and end time',
-  { background: null },
-);
+write('timed-session.html', timed[12]);
+write('completion-card.html', timed.at(-1));
 
 // A watch session needs something to watch: a sleep of our own, which
 // outlives the capture and is cleaned up afterwards.
 const watched = spawn('sleep', ['120'], { stdio: 'ignore' });
 try {
   const watch = frames(await capture([binary, '--watch', String(watched.pid)], { runFor: 4_000 }));
-  write('watch-session.svg', watch.at(-2), 'Guaranate watching a running process: a spinner, elapsed time, and the watched pid');
+  write('watch-session.html', watch.at(-2));
 } finally {
   spawnSync('kill', [String(watched.pid)]);
 }

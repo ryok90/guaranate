@@ -60,7 +60,7 @@ npm install                 # once
 npm run dev                 # local dev server
 npm run build               # static build (deploys through Zephyr with a token)
 npm run gen:cli             # regenerate the CLI reference from the binary
-npm run gen:frames          # re-capture the live-frame SVGs from the binary
+npm run gen:frames          # re-capture the live-frame snippets from the binary
 ```
 
 There is **no** configured linter or formatter. Match the style of the

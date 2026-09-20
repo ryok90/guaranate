@@ -78,14 +78,9 @@ const { title = 'zsh' } = Astro.props;
     box-shadow: none;
   }
 
-  /* The frame is a terminal capture: shown at its own size, as the terminal
-     drew it, rather than stretched to the width of the window. */
-  .terminal__body :global(img) {
-    display: block;
-    margin: -0.4rem 0 0;
-    padding-left: 0.75rem;
-    width: auto;
-    max-width: 100%;
-    height: auto;
+  /* A frame that stands alone in the window needs the padding the snippet
+     would otherwise have provided. */
+  .terminal__body :global(pre.frame:first-child) {
+    padding-left: 1rem;
   }
 </style>

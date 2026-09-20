@@ -3,6 +3,9 @@ title: Tying a session to a process
 description: Holding the assertion for exactly one command's lifetime with guaranate while, watching an already-running pid, exit codes, and signal behaviour.
 ---
 
+import TerminalWindow from '../../../components/TerminalWindow.astro';
+import TerminalFrame from '../../../components/TerminalFrame.astro';
+
 A timed session asks you to guess how long the work will take. Two forms remove
 the guess by tying the session to a process instead: `guaranate while <command>`
 runs the work itself, and `guaranate --watch <pid>` attaches to work that is
@@ -219,7 +222,9 @@ an unrelated new process can never silently inherit the assertion.
 The live frame swaps the progress bar for a spinner and adds a `Watching` row
 naming the process:
 
-![A Guaranate watch session: a spinner reading "Awake — until the watched process exits", elapsed time, and the watched pid](../../../assets/frames/watch-session.svg)
+<TerminalWindow title="guaranate — zsh">
+  <TerminalFrame name="watch-session" label="A Guaranate watch session: a spinner reading Awake — until the watched process exits, elapsed time, and the watched pid" />
+</TerminalWindow>
 
 The assertion is attributed to the watched process, not just to Guaranate, so
 `pmset` points at the real work — and its default reason names it too:

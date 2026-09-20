@@ -1,0 +1,25 @@
+---
+/**
+ * Adds the `twitter:*` tags Starlight does not emit.
+ *
+ * Starlight's own head declares `twitter:card: summary_large_image` and then
+ * only Open Graph tags. X documents `og:` as a fallback, but in practice a card
+ * that spells its title, description and image out in the `twitter:` namespace
+ * is the one that renders — so the page's own title and description are
+ * mirrored here, per page, rather than pinned to one site-wide string.
+ *
+ * The image tags live in `astro.config.mjs` (`head:`), because they are the same
+ * on every page.
+ */
+import Default from '@astrojs/starlight/components/Head.astro';
+import config from 'virtual:starlight/user-config';
+
+const { entry } = Astro.locals.starlightRoute;
+const description = entry.data.description || config.description;
+---
+
+<Default><slot /></Default>
+<meta name="twitter:title" content={entry.data.title} />
+{description && <meta name="twitter:description" content={description} />}
+<meta name="twitter:site" content="@ryok90" />
+<meta name="twitter:creator" content="@ryok90" />

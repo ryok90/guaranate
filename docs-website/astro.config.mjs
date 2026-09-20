@@ -11,15 +11,16 @@ const repo = 'https://github.com/ryok90/guaranate';
 const site = process.env.DOCS_SITE_URL ?? 'https://guaranate.dev';
 
 // Social cards need an absolute image URL — relative paths are not unfurled.
-// Starlight emits `twitter:card: summary_large_image` but no image of its own,
-// which is why link previews came up blank.
-const socialCard = new URL('/brand/social-card.png', site).href;
+// Starlight emits `twitter:card: summary_large_image` but no image of its own.
+// The card is a JPEG: X fetched the palettized PNG this started as and then
+// declined to render it. See scripts/gen-social-card.sh.
+const socialCard = new URL('/brand/social-card.jpg', site).href;
 const socialCardAlt =
   'The Guaranate guaraná berry mascot in a terminal window, beside the wordmark and the tagline "Keep your Mac awake with native macOS power assertions."';
 
 const socialCardMeta = [
   { property: 'og:image', content: socialCard },
-  { property: 'og:image:type', content: 'image/png' },
+  { property: 'og:image:type', content: 'image/jpeg' },
   { property: 'og:image:width', content: '1200' },
   { property: 'og:image:height', content: '630' },
   { property: 'og:image:alt', content: socialCardAlt },
@@ -46,6 +47,9 @@ export default defineConfig({
       logo: { src: './src/assets/brand/mascot.png', alt: 'The Guaranate guaraná berry mascot' },
       favicon: '/favicon.png',
       head: socialCardMeta,
+      // Adds the per-page twitter:title / twitter:description / twitter:site
+      // tags Starlight leaves out. See src/components/Head.astro.
+      components: { Head: './src/components/Head.astro' },
       social: [{ icon: 'github', label: 'GitHub', href: repo }],
       editLink: { baseUrl: `${repo}/edit/main/docs-website/` },
       lastUpdated: true,

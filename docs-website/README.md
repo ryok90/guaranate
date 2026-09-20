@@ -71,20 +71,37 @@ which otherwise shaves the top and bottom off a non-square asset.
 
 ## The social card
 
-`public/brand/social-card.png` is the 1200x630 image link unfurlers show for
+`public/brand/social-card.jpg` is the 1200x630 image link unfurlers show for
 every page — X/Twitter, Slack, Discord, LinkedIn. Starlight emits
 `twitter:card: summary_large_image` but no image of its own, so the `og:image` /
 `twitter:image` tags are declared in `astro.config.mjs` (`head:`), as **absolute**
 URLs built from `site`: unfurlers do not resolve relative paths.
+
+Three details are load-bearing, all learned the hard way on X:
+
+- **The card is a truecolor JPEG.** It shipped first as a pngquant-palettized
+  PNG, which X fetched (200, `image/png`, 1200x630, 73 KB) and then refused to
+  render. Slack and Discord were fine with it.
+- **The `twitter:` namespace is spelled out, not left to fall back to `og:`.**
+  `src/components/Head.astro` overrides Starlight's `Head` to add per-page
+  `twitter:title` / `twitter:description` plus `twitter:site` / `twitter:creator`.
+- **`public/robots.txt` allows everything explicitly.** Without a file of its
+  own the domain served Cloudflare's managed robots.txt, which is nothing but
+  content-signal comments — no `Allow`, no sitemap.
+
+X has no cache purge since the Card Validator was retired: a page it scraped
+while the card was broken keeps its blank preview for about a week. Changing the
+image URL (`.png` → `.jpg`, here) is the only lever that invalidates anything.
 
 ```bash
 ./scripts/gen-social-card.sh    # only needed if the branding or the tagline changes
 ```
 
 The card is composed by ImageMagick from `src/assets/brand/terminal.png` and the
-theme palette. Its type is set in Avenir Next and Menlo rather than the site's
-Space Grotesk / JetBrains Mono: Fontsource ships those as WOFF2 only, which
-FreeType — and so ImageMagick — cannot read.
+theme palette, then flattened (no alpha) and written at quality 88. Its type is
+set in Avenir Next and Menlo rather than the site's Space Grotesk / JetBrains
+Mono: Fontsource ships those as WOFF2 only, which FreeType — and so ImageMagick
+— cannot read.
 
 ## Theme
 

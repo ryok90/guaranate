@@ -14,6 +14,14 @@
 // is: every frame carries a wall clock, so two captures never match byte for
 // byte. Re-run this script when the renderer changes.
 //
+// One thing is edited by hand afterwards: the committed timed-session and
+// completion frames read as a two-hour session, while the capture itself runs
+// for twenty seconds. Only the clock values are rewritten — the bar, the
+// colors, and the layout are the binary's. Nothing can fast-forward the
+// renderer's clock (libfaketime does not reach Foundation's `Date`), so the
+// alternative was a 78-minute capture for one screenshot. Re-running this
+// script restores the real seconds; re-apply the two-hour figures after.
+//
 // Usage:
 //   node scripts/gen-terminal-frames.mjs     # capture and write the fragments
 //

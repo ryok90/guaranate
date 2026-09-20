@@ -69,6 +69,23 @@ Variants used as a Starlight hero are padded to a square canvas: hero images are
 rendered at a fixed 400x400, and Astro crops to fill when both dimensions are set,
 which otherwise shaves the top and bottom off a non-square asset.
 
+## The social card
+
+`public/brand/social-card.png` is the 1200x630 image link unfurlers show for
+every page — X/Twitter, Slack, Discord, LinkedIn. Starlight emits
+`twitter:card: summary_large_image` but no image of its own, so the `og:image` /
+`twitter:image` tags are declared in `astro.config.mjs` (`head:`), as **absolute**
+URLs built from `site`: unfurlers do not resolve relative paths.
+
+```bash
+./scripts/gen-social-card.sh    # only needed if the branding or the tagline changes
+```
+
+The card is composed by ImageMagick from `src/assets/brand/terminal.png` and the
+theme palette. Its type is set in Avenir Next and Menlo rather than the site's
+Space Grotesk / JetBrains Mono: Fontsource ships those as WOFF2 only, which
+FreeType — and so ImageMagick — cannot read.
+
 ## Theme
 
 `src/styles/theme.css` is the whole visual identity, wired through Starlight's

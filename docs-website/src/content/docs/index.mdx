@@ -23,6 +23,7 @@ hero:
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 import TerminalWindow from '../../components/TerminalWindow.astro';
+import TerminalFrame from '../../components/TerminalFrame.astro';
 
 <TerminalWindow title="guaranate — zsh">
 
@@ -33,7 +34,7 @@ guaranate                 # stay awake until interrupted
 guaranate 2h              # stay awake for two hours
 ```
 
-![Guaranate part-way through a two-hour session: a green-to-red gradient progress bar above elapsed, remaining, end time, and the assertion mode](../../assets/frames/hero-session.svg)
+<TerminalFrame name="timed-session" label="A Guaranate session at 65%: a green-to-red gradient progress bar above elapsed, remaining, end time, and the assertion mode" />
 
 </TerminalWindow>
 

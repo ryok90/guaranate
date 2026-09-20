@@ -3,6 +3,9 @@ title: Keeping your Mac awake
 description: Timed and indefinite Guaranate sessions, duration syntax, assertion modes, and what the live frame shows.
 ---
 
+import TerminalWindow from '../../../components/TerminalWindow.astro';
+import TerminalFrame from '../../../components/TerminalFrame.astro';
+
 A Guaranate session holds a macOS power assertion for as long as it runs, and
 releases it when it ends. Everything else — the duration syntax, the assertion
 mode, the live frame — is about deciding *how long* and *how much* sleep to
@@ -112,17 +115,23 @@ On a color terminal, a running session renders a gradient progress bar, a
 dot-leader metrics table, and a centered header, all sized to the terminal
 width:
 
-![A Guaranate timed session at 65%: a green-to-red gradient progress bar above elapsed, remaining, end time, and the assertion mode](../../../assets/frames/timed-session.svg)
+<TerminalWindow title="guaranate — zsh">
+  <TerminalFrame name="timed-session" label="A Guaranate timed session at 65%: a green-to-red gradient progress bar above elapsed, remaining, end time, and the assertion mode" />
+</TerminalWindow>
 
 The bar fills green and warms towards berry red as the deadline approaches, the
 assertion rows are color-coded (amber when `--display` keeps the screen on), and
 the cursor stays hidden until the frame is gone. When the session completes, the
 frame is replaced by a summary card:
 
-![A completed Guaranate session: a full progress bar with a check mark, the time stayed awake, and the assertion released](../../../assets/frames/completion-card.svg)
+<TerminalWindow title="guaranate — zsh">
+  <TerminalFrame name="completion-card" label="A completed Guaranate session: a full progress bar with a check mark, the time stayed awake, and the assertion released" />
+</TerminalWindow>
 
-Both images are captures of the real binary, rendered by
-`npm run gen:frames` — no mock-ups.
+Both frames are captures of the real binary — text, not screenshots — written
+by `npm run gen:frames`. Only the clock values are dressed: the capture runs
+for seconds, and the figures above are rewritten to a two-hour session so the
+bar, the elapsed time, and the remaining time tell one story.
 
 ### Terminals that can't do that
 

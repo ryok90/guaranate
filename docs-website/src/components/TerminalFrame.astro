@@ -1,0 +1,50 @@
+---
+/**
+ * A captured Guaranate live frame, rendered as text.
+ *
+ * The fragments under `frames/` are generated from the real binary by
+ * `npm run gen:frames`: colored spans, nothing else. Keeping them as text
+ * rather than an image means the frame is selectable, searchable, scales with
+ * the reader's font size, and recolors nothing behind the page's back.
+ */
+const fragments = import.meta.glob<string>('./frames/*.html', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+});
+
+interface Props {
+  /** File name under `frames/`, without the extension. */
+  name: string;
+  /** What the frame shows, for anyone who is not reading the glyphs. */
+  label: string;
+}
+
+const { name, label } = Astro.props;
+const body = fragments[`./frames/${name}.html`];
+
+if (!body) {
+  throw new Error(`No captured frame named "${name}". Run \`npm run gen:frames\`.`);
+}
+---
+
+<pre class="frame" role="img" aria-label={label}><Fragment set:html={body.trimEnd()} /></pre>
+
+<style>
+  /* The terminal's own grid: the capture is padded with spaces, so the only
+     job here is a monospace font and honest whitespace. */
+  .frame {
+    margin: 0;
+    /* Aligned with the snippet above it: same font, same left edge, but the
+       terminal's tighter leading rather than prose line-height. */
+    padding: 0.1rem 0 0.35rem;
+    background: transparent;
+    border: none;
+    color: #e8e2df;
+    font-family: var(--sl-font-mono);
+    font-size: 0.875rem;
+    line-height: 1.45;
+    white-space: pre;
+    overflow-x: auto;
+  }
+</style>

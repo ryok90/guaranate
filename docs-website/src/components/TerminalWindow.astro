@@ -1,0 +1,91 @@
+---
+/**
+ * A terminal window that holds both a command and what running it looks like.
+ *
+ * Expressive Code already frames a shell snippet as a terminal, but it can only
+ * hold text. The landing page needs the command *and* the live frame it
+ * produces in the same window, so the snippet is rendered frameless
+ * (```bash frame="none") and this component supplies the window around both.
+ */
+interface Props {
+  /** Shown in the title bar, as a terminal tab would. */
+  title?: string;
+}
+
+const { title = 'zsh' } = Astro.props;
+---
+
+<figure class="terminal">
+  <div class="terminal__bar">
+    <span class="terminal__dots" aria-hidden="true"></span>
+    <span class="terminal__title">{title}</span>
+  </div>
+  <div class="terminal__body">
+    <slot />
+  </div>
+</figure>
+
+<style>
+  .terminal {
+    margin: 1.5rem 0;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background: #17120f;
+    box-shadow: 0 1rem 2.5rem var(--guaranate-glow);
+  }
+
+  .terminal__bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.9rem;
+    background: color-mix(in srgb, #17120f 80%, white);
+    border-bottom: 1px solid var(--sl-color-gray-5);
+  }
+
+  /* The three window buttons, drawn rather than shipped as three elements. */
+  .terminal__dots {
+    width: 2.6rem;
+    height: 0.7rem;
+    background-image: radial-gradient(circle, #ff5f57 0.35rem, transparent 0.36rem),
+      radial-gradient(circle, #febc2e 0.35rem, transparent 0.36rem),
+      radial-gradient(circle, #28c840 0.35rem, transparent 0.36rem);
+    background-size: 0.7rem 0.7rem;
+    background-position: left center, center center, right center;
+    background-repeat: no-repeat;
+  }
+
+  .terminal__title {
+    font-family: var(--sl-font-mono);
+    font-size: 0.75rem;
+    color: var(--sl-color-gray-3);
+  }
+
+  .terminal__body {
+    padding: 0.9rem 0.25rem 1.1rem;
+  }
+
+  /* The snippet and the frame are one continuous terminal session: no card of
+     their own, no gap between the command and its output. */
+  .terminal__body :global(.expressive-code) {
+    margin: 0;
+  }
+
+  .terminal__body :global(.expressive-code pre) {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+
+  /* The frame is a terminal capture: shown at its own size, as the terminal
+     drew it, rather than stretched to the width of the window. */
+  .terminal__body :global(img) {
+    display: block;
+    margin: -0.4rem 0 0;
+    padding-left: 0.75rem;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+  }
+</style>

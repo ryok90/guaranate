@@ -22,12 +22,20 @@ hero:
 ---
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import TerminalWindow from '../../components/TerminalWindow.astro';
 
-```bash
-guaranate 2h              # stay awake for two hours
+<TerminalWindow title="guaranate — zsh">
+
+```bash frame="none"
+guaranate while npm test  # stay awake for exactly one command
+guaranate --watch 4821    # stay awake until pid 4821 exits
 guaranate                 # stay awake until interrupted
-guaranate 45m --display   # keep the display awake too
+guaranate 2h              # stay awake for two hours
 ```
+
+![Guaranate part-way through a two-hour session: a green-to-red gradient progress bar above elapsed, remaining, end time, and the assertion mode](../../assets/frames/hero-session.svg)
+
+</TerminalWindow>
 
 <CardGrid stagger>
   <Card title="Human durations" icon="moon">
@@ -57,6 +65,11 @@ guaranate 45m --display   # keep the display awake too
     description="Duration syntax, indefinite sessions, assertion modes, exit codes, and the live frame."
   />
   <LinkCard
+    title="Tying a session to a process"
+    href="/guides/process-sessions/"
+    description="guaranate while <command>, watching a running pid, exit codes, and signal behaviour."
+  />
+  <LinkCard
     title="Install"
     href="/guides/install/"
     description="Homebrew, a release binary with checksum, or a build from source."
@@ -78,10 +91,9 @@ sessions. The name is a play on **guaraná**, the Brazilian stimulant, and
 Apple's `caffeinate` command.
 
 ::::note[Where the project stands]
-Version 0.1 ships timed and indefinite sessions. `while <command>` and
-`--watch <pid>` are on `main` and documented here, ahead of the release that will
-carry them — build from source to use them today. Commands that do not exist yet —
-`until`, `status`, `why`, `--json`, leases — are listed on the
-[roadmap](/reference/roadmap/) and are deliberately absent from these guides until
-they ship.
+Version 0.2 ships timed and indefinite sessions, `while <command>`, and
+`--watch <pid>` — everything these guides document is in the released binary.
+Commands that do not exist yet — `until`, `status`, `why`, `--json`, leases —
+are listed on the [roadmap](/reference/roadmap/) and are deliberately absent
+from these guides until they ship.
 ::::

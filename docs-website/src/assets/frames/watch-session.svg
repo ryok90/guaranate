@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 397 254" width="397" height="254" role="img" aria-label="Guaranate watching a running process: a spinner, elapsed time, and the watched pid">
+  <title>Guaranate watching a running process: a spinner, elapsed time, and the watched pid</title>
+  <rect width="397" height="254" rx="12" fill="#17120f"/>
+  <g font-family="'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#e8e2df" xml:space="preserve">
+    <text x="127.2" y="36">🌿</text><text x="152.4" y="36" fill="#36aa4c" font-weight="700">Guaranate</text>
+    <text x="34.8" y="78" fill="#7bbf3a">⠹</text><text x="51.6" y="78">Awake — until the watched process exits</text>
+    <text x="34.8" y="120" opacity="0.55">Elapsed</text><text x="152.4" y="120" opacity="0.55">· · · · · · ·</text><text x="270.0" y="120">00:00:02</text>
+    <text x="34.8" y="141" opacity="0.55">Watching</text><text x="152.4" y="141" opacity="0.55">· · · ·</text><text x="228.0" y="141">59650 (sleep)</text>
+    <text x="34.8" y="162" opacity="0.55">Assertion</text><text x="152.4" y="162" opacity="0.55">· · · · ·</text><text x="236.4" y="162" fill="#7bbf3a">System sleep</text>
+    <text x="34.8" y="183" opacity="0.55">Display</text><text x="152.4" y="183" opacity="0.55">· · · · · ·</text><text x="261.6" y="183" fill="#7bbf3a">May sleep</text>
+    <text x="18.0" y="225" opacity="0.55">Press</text><text x="68.4" y="225">Ctrl+C</text><text x="127.2" y="225" opacity="0.55">or</text><text x="152.4" y="225">q</text><text x="169.2" y="225" opacity="0.55">to stop</text>
+  </g>
+</svg>

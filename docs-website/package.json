@@ -13,7 +13,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "gen:cli": "node scripts/gen-cli-reference.mjs",
-    "gen:cli:check": "node scripts/gen-cli-reference.mjs --check"
+    "gen:cli:check": "node scripts/gen-cli-reference.mjs --check",
+    "gen:frames": "node scripts/gen-terminal-frames.mjs"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.42.0",

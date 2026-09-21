@@ -12,9 +12,9 @@ const site = process.env.DOCS_SITE_URL ?? 'https://guaranate.dev';
 
 // Social cards need an absolute image URL — relative paths are not unfurled.
 // Starlight emits `twitter:card: summary_large_image` but no image of its own.
-// The card is a JPEG: X fetched the palettized PNG this started as and then
-// declined to render it. See scripts/gen-social-card.sh.
-const socialCard = new URL('/brand/social-card.jpg', site).href;
+// Keep the version query when the card bytes change or X has cached a failed
+// media binding: X caches the image independently from the page metadata.
+const socialCard = new URL('/brand/social-card.jpg?v=20260921', site).href;
 const socialCardAlt =
   'The Guaranate guaraná berry mascot in a terminal window, beside the wordmark and the tagline "Keep your Mac awake with native macOS power assertions."';
 

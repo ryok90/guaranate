@@ -89,9 +89,11 @@ Three details are load-bearing, all learned the hard way on X:
   own the domain served Cloudflare's managed robots.txt, which is nothing but
   content-signal comments — no `Allow`, no sitemap.
 
-X has no cache purge since the Card Validator was retired: a page it scraped
-while the card was broken keeps its blank preview for about a week. Changing the
-image URL (`.png` → `.jpg`, here) is the only lever that invalidates anything.
+X has no cache purge since the Card Validator was retired, and it caches the
+page metadata and resolved image as separate records. If X has fetched the image
+but omitted its image bindings, increment the version query on `socialCard` in
+`astro.config.mjs` to force a new media record; use a fresh page URL to make X
+read that updated tag instead of its cached page metadata.
 
 ```bash
 ./scripts/gen-social-card.sh    # only needed if the branding or the tagline changes

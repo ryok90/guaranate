@@ -10,3 +10,4 @@ docs-website/node_modules/
 docs-website/dist/
 docs-website/.astro/
 docs-website/build.log
+docs-website/src/content/docs/reference/changelog.md

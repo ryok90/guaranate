@@ -10,10 +10,13 @@
   },
   "scripts": {
     "dev": "astro dev",
+    "predev": "npm run gen:changelog",
     "build": "astro build",
+    "prebuild": "npm run gen:changelog",
     "preview": "astro preview",
     "gen:cli": "node scripts/gen-cli-reference.mjs",
     "gen:cli:check": "node scripts/gen-cli-reference.mjs --check",
+    "gen:changelog": "node scripts/gen-changelog.mjs",
     "gen:frames": "node scripts/gen-terminal-frames.mjs"
   },
   "dependencies": {

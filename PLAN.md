@@ -453,6 +453,15 @@ no monorepo tooling). Refs: #24, `AGENTS.md` "Changelog workflow" /
     tag, no release; fork PRs still build-verify without a token.
   - Refs: #31, `.github/workflows/docs.yml`.
 
+- [x] `DOCS-T13` Publish the changelog from the repository root.
+  - Acceptance: the docs build generates and ignores a changelog page from
+    `CHANGELOG.md`, marks Unreleased with a caution, links “Edit page” to the
+    root source, exposes the page in the sidebar and landing page, and runs the
+    docs workflow for changelog-only pull requests.
+  - Refs: #28, `docs-website/scripts/gen-changelog.mjs`,
+    `docs-website/astro.config.mjs`, `docs-website/src/content/docs/index.mdx`,
+    `.github/workflows/docs.yml`.
+
 ---
 
 ## Cross-cutting constraints (apply to every milestone)

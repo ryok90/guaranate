@@ -70,7 +70,7 @@ export default defineConfig({
         },
         {
           label: 'Reference',
-          items: [{ slug: 'reference/cli' }, { slug: 'reference/roadmap' }],
+          items: [{ slug: 'reference/cli' }, { slug: 'reference/roadmap' }, { slug: 'reference/changelog' }],
         },
       ],
     }),

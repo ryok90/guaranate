@@ -9,6 +9,7 @@ on:
   pull_request:
     paths:
       - "docs-website/**"
+      - CHANGELOG.md
       - .github/workflows/docs.yml
   workflow_dispatch:
 

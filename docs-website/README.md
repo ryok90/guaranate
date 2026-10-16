@@ -19,6 +19,7 @@ npm run dev        # local dev server with hot reload
 npm run build      # static build — and a Zephyr deployment (see below)
 npm run preview    # serve the built site from dist/
 npm run gen:cli    # regenerate the CLI reference from the guaranate binary
+npm run gen:changelog # regenerate the changelog from the root CHANGELOG.md
 ```
 
 ## The CLI reference is generated
@@ -39,6 +40,20 @@ npm run gen:cli:check   # non-mutating: fails if the page is stale
 The page is committed because this site builds on Linux, where the macOS-only
 binary cannot be built. The Swift `Build & Test` CI job runs `gen:cli:check` on
 macOS, so a CLI change that forgets to regenerate the page fails there.
+
+## The changelog is generated
+
+`src/content/docs/reference/changelog.md` is generated from the repository root
+`CHANGELOG.md`, the sole source for release history. `npm run gen:changelog`
+regenerates it, and `npm run build` and `npm run dev` run the generator first.
+If `CHANGELOG.md` changes while a dev server is already running, rerun
+`npm run gen:changelog` to refresh the page.
+
+The page links “Edit page” to the root `CHANGELOG.md`. Generated output is
+ignored rather than committed: the docs build reads the source directly, so
+there is no second changelog to keep in sync. Unlike this page, the binary-generated
+`cli.md` is committed because the macOS CLI cannot be built on the Linux docs
+builder.
 
 ## Brand assets
 
